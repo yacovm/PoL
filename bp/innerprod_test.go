@@ -1,0 +1,19 @@
+package bp
+
+import (
+	"github.com/stretchr/testify/assert"
+	"pol/common"
+	"testing"
+)
+
+func TestInnerProdArgument(t *testing.T) {
+	n := 8
+	pp := common.NewPublicParams(n)
+	a := common.RandVec(n)
+	b := common.RandVec(n)
+
+	ipa := NewInnerProdArgument(pp, a, b)
+
+	proof := ipa.Prove()
+	assert.Nil(t, proof.Verify(pp))
+}
