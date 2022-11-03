@@ -10,6 +10,7 @@ import (
 type InnerProdArgument struct {
 	pp   *common.PP
 	a, b common.Vec
+	C    *math.Zr
 	P    *math.G1
 }
 
@@ -17,12 +18,14 @@ type InnerProductProof struct {
 	LRs  []*math.G1
 	a, b *math.Zr
 	P    *math.G1
+	C    *math.Zr
 }
 
 func NewInnerProdArgument(pp *common.PP, a, b common.Vec) *InnerProdArgument {
 	ipa := &InnerProdArgument{
+		C:  a.InnerProd(b),
 		pp: pp,
-		P:  common.Commit(pp, a, b),
+		P:  commit(pp, a, b, nil),
 		a:  a,
 		b:  b,
 	}
@@ -30,9 +33,53 @@ func NewInnerProdArgument(pp *common.PP, a, b common.Vec) *InnerProdArgument {
 	return ipa
 }
 
+func commit(pp *common.PP, a, b common.Vec, u *math.G1) *math.G1 {
+	if len(a) != len(b) {
+		panic(fmt.Sprintf("vector a is of length %d but vector b is of length %d", len(a), len(b)))
+	}
+
+	gAcc := pp.G[0].Mul(a[0])
+	hAcc := pp.H[0].Mul(b[0])
+
+	for i := 1; i < len(a); i++ {
+		gAcc.Add(pp.G[i].Mul(a[i]))
+		hAcc.Add(pp.H[i].Mul(b[i]))
+	}
+
+	gAcc.Add(hAcc)
+
+	if u != nil {
+		gAcc.Add(pp.U.Mul(a.InnerProd(b)))
+	}
+
+	return gAcc
+}
+
+func computeInstanceSpecificParams(pp *common.PP, P *math.G1, c *math.Zr) (*common.PP, *math.G1) {
+	var newPP common.PP
+	newPP = *pp
+	var hashPreImage []byte
+	hashPreImage = append(hashPreImage, P.Bytes()...)
+	hashPreImage = append(pp.Digest)
+
+	x := common.FieldElementFromBytes(common.SHA256Digest(string(hashPreImage)))
+
+	P = P.Copy()
+	P.Add(pp.U.Mul(x.Mul(c)))
+
+	newPP.U = newPP.U.Mul(x)
+	newPP.RecomputeDigest()
+	return &newPP, P
+}
+
 func (ipa *InnerProdArgument) Prove() *InnerProductProof {
-	LRs, ab := ipa.prove(ipa.a, ipa.b, ipa.P, ipa.pp.G, ipa.pp.H)
+	// We substitute the 'u' and P by applying the verifier's challenge
+	// as per protocol 1.
+	pp, P := computeInstanceSpecificParams(ipa.pp, ipa.P, ipa.C)
+	// Next, we run protocol 2.
+	LRs, ab := prove(pp, ipa.a, ipa.b, P, ipa.pp.G, ipa.pp.H)
 	return &InnerProductProof{
+		C:   ipa.C,
 		P:   ipa.P,
 		LRs: LRs,
 		a:   ab[0],
@@ -41,10 +88,12 @@ func (ipa *InnerProdArgument) Prove() *InnerProductProof {
 }
 
 func (ipp *InnerProductProof) Verify(pp *common.PP) error {
-	return ipp.verify(pp, ipp.P, pp.G, pp.H, ipp.LRs, ipp.a, ipp.b)
+	pp, P := computeInstanceSpecificParams(pp, ipp.P, ipp.C)
+	return verify(pp, P, pp.G, pp.H, ipp.LRs, ipp.a, ipp.b)
 }
 
-func (ipp *InnerProductProof) verify(pp *common.PP, P *math.G1, g, h common.G1v, LRs []*math.G1, a *math.Zr, b *math.Zr) error {
+// verify implements the verifier's side in protocol 2.
+func verify(pp *common.PP, P *math.G1, g, h common.G1v, LRs []*math.G1, a *math.Zr, b *math.Zr) error {
 	if len(g) == 1 {
 		expectedP := pp.U.Mul(a.Mul(b))
 		expectedP.Add(g[0].Mul(a))
@@ -66,14 +115,13 @@ func (ipp *InnerProductProof) verify(pp *common.PP, P *math.G1, g, h common.G1v,
 	h = nextParams.h
 	P = nextParams.P
 
-	return ipp.verify(pp, P, g, h, LRs, a, b)
+	return verify(pp, P, g, h, LRs, a, b)
 
 }
 
+// prove implements the prover's side in protocol 2.
 // Returns an array of (L,R) pairs of type *math.G1 and a single (a,b) of type *math.Zr
-func (ipa *InnerProdArgument) prove(a, b common.Vec, P *math.G1, g, h common.G1v) ([]*math.G1, []*math.Zr) {
-	pp := ipa.pp
-
+func prove(pp *common.PP, a, b common.Vec, P *math.G1, g, h common.G1v) ([]*math.G1, []*math.Zr) {
 	if len(g) != len(h) {
 		panic(fmt.Sprintf("g is of length %d but h is of length %d", len(g), len(h)))
 	}
@@ -109,7 +157,7 @@ func (ipa *InnerProdArgument) prove(a, b common.Vec, P *math.G1, g, h common.G1v
 	a = a[:n].Mul(x).Add(a[n:].Mul(xInverse))
 	b = b[:n].Mul(xInverse).Add(b[n:].Mul(x))
 
-	LRs, abs := ipa.prove(a, b, P, g, h)
+	LRs, abs := prove(pp, a, b, P, g, h)
 
 	var res []*math.G1
 	res = append([]*math.G1{L, R}, LRs...)

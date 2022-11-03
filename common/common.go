@@ -37,6 +37,12 @@ func NewPublicParams(n int) *PP {
 		U: randGenVec(1, "u")[0],
 	}
 
+	pp.setupDigest()
+
+	return pp
+}
+
+func (pp *PP) setupDigest() {
 	h := sha256.New()
 	h.Write(pp.U.Bytes())
 	for i := 0; i < len(pp.G); i++ {
@@ -44,35 +50,18 @@ func NewPublicParams(n int) *PP {
 		h.Write(pp.H[i].Bytes())
 	}
 	pp.Digest = h.Sum(nil)
-
-	return pp
 }
 
-func Commit(pp *PP, a, b Vec) *math.G1 {
-	if len(a) != len(b) {
-		panic(fmt.Sprintf("vector a is of length %d but vector b is of length %d", len(a), len(b)))
-	}
-
-	gAcc := pp.G[0].Mul(a[0])
-	hAcc := pp.H[0].Mul(b[0])
-
-	for i := 1; i < len(a); i++ {
-		gAcc.Add(pp.G[i].Mul(a[i]))
-		hAcc.Add(pp.H[i].Mul(b[i]))
-	}
-
-	gAcc.Add(hAcc)
-	gAcc.Add(pp.U.Mul(a.InnerProd(b)))
-
-	return gAcc
+func (pp *PP) RecomputeDigest() {
+	pp.setupDigest()
 }
 
 func randGenVec(n int, context string) []*math.G1 {
 	v := make([]*math.G1, n)
 
 	for i := 0; i < n; i++ {
-		randBytes := sha256Digest(fmt.Sprintf("PoL %s %d", context, i))
-		randBytes = append(randBytes, sha256Digest(string(randBytes))...)
+		randBytes := SHA256Digest(fmt.Sprintf("PoL %s %d", context, i))
+		randBytes = append(randBytes, SHA256Digest(string(randBytes))...)
 		v[i] = HashToG1(randBytes)
 	}
 
@@ -274,7 +263,7 @@ func e(g1 *math.G1, g2 *math.G2) *math.Gt {
 	return c.FExp(gt)
 }
 
-func sha256Digest(in string) []byte {
+func SHA256Digest(in string) []byte {
 	h := sha256.New()
 	h.Write([]byte(in))
 	digest := h.Sum(nil)
