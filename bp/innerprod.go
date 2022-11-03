@@ -3,8 +3,9 @@ package bp
 import (
 	"crypto/sha256"
 	"fmt"
-	math "github.com/IBM/mathlib"
 	"pol/common"
+
+	math "github.com/IBM/mathlib"
 )
 
 type InnerProdArgument struct {
@@ -116,7 +117,6 @@ func verify(pp *common.PP, P *math.G1, g, h common.G1v, LRs []*math.G1, a *math.
 	P = nextParams.P
 
 	return verify(pp, P, g, h, LRs, a, b)
-
 }
 
 // prove implements the prover's side in protocol 2.

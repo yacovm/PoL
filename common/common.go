@@ -19,9 +19,11 @@ var (
 	lambda     = c.FieldBytes
 )
 
-type Vec []*math.Zr
-type G1v []*math.G1
-type G2v []*math.G2
+type (
+	Vec []*math.Zr
+	G1v []*math.G1
+	G2v []*math.G2
+)
 
 type PP struct {
 	Digest []byte

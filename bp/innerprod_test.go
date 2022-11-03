@@ -1,9 +1,10 @@
 package bp
 
 import (
-	"github.com/stretchr/testify/assert"
 	"pol/common"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestInnerProdArgument(t *testing.T) {
