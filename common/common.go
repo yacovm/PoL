@@ -25,40 +25,7 @@ type (
 	G2v []*math.G2
 )
 
-type PP struct {
-	Digest []byte
-	G      []*math.G1
-	H      []*math.G1
-	U      *math.G1
-}
-
-func NewPublicParams(n int) *PP {
-	pp := &PP{
-		G: randGenVec(n, "g"),
-		H: randGenVec(n, "h"),
-		U: randGenVec(1, "u")[0],
-	}
-
-	pp.setupDigest()
-
-	return pp
-}
-
-func (pp *PP) setupDigest() {
-	h := sha256.New()
-	h.Write(pp.U.Bytes())
-	for i := 0; i < len(pp.G); i++ {
-		h.Write(pp.G[i].Bytes())
-		h.Write(pp.H[i].Bytes())
-	}
-	pp.Digest = h.Sum(nil)
-}
-
-func (pp *PP) RecomputeDigest() {
-	pp.setupDigest()
-}
-
-func randGenVec(n int, context string) []*math.G1 {
+func RandGenVec(n int, context string) []*math.G1 {
 	v := make([]*math.G1, n)
 
 	for i := 0; i < n; i++ {
