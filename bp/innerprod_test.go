@@ -9,7 +9,7 @@ import (
 
 func TestInnerProdArgument(t *testing.T) {
 	n := 8
-	pp := common.NewPublicParams(n)
+	pp := NewPublicParams(n)
 	a := common.RandVec(n)
 	b := common.RandVec(n)
 

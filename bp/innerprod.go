@@ -8,8 +8,41 @@ import (
 	math "github.com/IBM/mathlib"
 )
 
+type PP struct {
+	Digest []byte
+	G      []*math.G1
+	H      []*math.G1
+	U      *math.G1
+}
+
+func NewPublicParams(n int) *PP {
+	pp := &PP{
+		G: common.RandGenVec(n, "g"),
+		H: common.RandGenVec(n, "h"),
+		U: common.RandGenVec(1, "u")[0],
+	}
+
+	pp.setupDigest()
+
+	return pp
+}
+
+func (pp *PP) setupDigest() {
+	h := sha256.New()
+	h.Write(pp.U.Bytes())
+	for i := 0; i < len(pp.G); i++ {
+		h.Write(pp.G[i].Bytes())
+		h.Write(pp.H[i].Bytes())
+	}
+	pp.Digest = h.Sum(nil)
+}
+
+func (pp *PP) RecomputeDigest() {
+	pp.setupDigest()
+}
+
 type InnerProdArgument struct {
-	pp   *common.PP
+	pp   *PP
 	a, b common.Vec
 	C    *math.Zr
 	P    *math.G1
@@ -22,7 +55,7 @@ type InnerProductProof struct {
 	C    *math.Zr
 }
 
-func NewInnerProdArgument(pp *common.PP, a, b common.Vec) *InnerProdArgument {
+func NewInnerProdArgument(pp *PP, a, b common.Vec) *InnerProdArgument {
 	ipa := &InnerProdArgument{
 		C:  a.InnerProd(b),
 		pp: pp,
@@ -34,7 +67,7 @@ func NewInnerProdArgument(pp *common.PP, a, b common.Vec) *InnerProdArgument {
 	return ipa
 }
 
-func commit(pp *common.PP, a, b common.Vec, u *math.G1) *math.G1 {
+func commit(pp *PP, a, b common.Vec, u *math.G1) *math.G1 {
 	if len(a) != len(b) {
 		panic(fmt.Sprintf("vector a is of length %d but vector b is of length %d", len(a), len(b)))
 	}
@@ -56,8 +89,8 @@ func commit(pp *common.PP, a, b common.Vec, u *math.G1) *math.G1 {
 	return gAcc
 }
 
-func computeInstanceSpecificParams(pp *common.PP, P *math.G1, c *math.Zr) (*common.PP, *math.G1) {
-	var newPP common.PP
+func computeInstanceSpecificParams(pp *PP, P *math.G1, c *math.Zr) (*PP, *math.G1) {
+	var newPP PP
 	newPP = *pp
 	var hashPreImage []byte
 	hashPreImage = append(hashPreImage, P.Bytes()...)
@@ -88,13 +121,13 @@ func (ipa *InnerProdArgument) Prove() *InnerProductProof {
 	}
 }
 
-func (ipp *InnerProductProof) Verify(pp *common.PP) error {
+func (ipp *InnerProductProof) Verify(pp *PP) error {
 	pp, P := computeInstanceSpecificParams(pp, ipp.P, ipp.C)
 	return verify(pp, P, pp.G, pp.H, ipp.LRs, ipp.a, ipp.b)
 }
 
 // verify implements the verifier's side in protocol 2.
-func verify(pp *common.PP, P *math.G1, g, h common.G1v, LRs []*math.G1, a *math.Zr, b *math.Zr) error {
+func verify(pp *PP, P *math.G1, g, h common.G1v, LRs []*math.G1, a *math.Zr, b *math.Zr) error {
 	if len(g) == 1 {
 		expectedP := pp.U.Mul(a.Mul(b))
 		expectedP.Add(g[0].Mul(a))
@@ -121,7 +154,7 @@ func verify(pp *common.PP, P *math.G1, g, h common.G1v, LRs []*math.G1, a *math.
 
 // prove implements the prover's side in protocol 2.
 // Returns an array of (L,R) pairs of type *math.G1 and a single (a,b) of type *math.Zr
-func prove(pp *common.PP, a, b common.Vec, P *math.G1, g, h common.G1v) ([]*math.G1, []*math.Zr) {
+func prove(pp *PP, a, b common.Vec, P *math.G1, g, h common.G1v) ([]*math.G1, []*math.Zr) {
 	if len(g) != len(h) {
 		panic(fmt.Sprintf("g is of length %d but h is of length %d", len(g), len(h)))
 	}
@@ -170,7 +203,7 @@ type nextParams struct {
 	P           *math.G1
 }
 
-func computeNextParams(L *math.G1, R *math.G1, pp *common.PP, g common.G1v, h common.G1v, P *math.G1) nextParams {
+func computeNextParams(L *math.G1, R *math.G1, pp *PP, g common.G1v, h common.G1v, P *math.G1) nextParams {
 	n := len(g) / 2
 
 	digest := randomOracle(L, R, pp)
@@ -200,7 +233,7 @@ func computeNextParams(L *math.G1, R *math.G1, pp *common.PP, g common.G1v, h co
 	}
 }
 
-func randomOracle(L *math.G1, R *math.G1, pp *common.PP) []byte {
+func randomOracle(L *math.G1, R *math.G1, pp *PP) []byte {
 	h := sha256.New()
 	h.Write(L.Bytes())
 	h.Write(R.Bytes())
