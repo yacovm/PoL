@@ -129,6 +129,23 @@ func (g1v G1v) Mul(x *math.Zr) G1v {
 	return res
 }
 
+func (g1v G1v) MulV(v Vec) G1v {
+	res := make(G1v, len(g1v))
+	for i := 0; i < len(res); i++ {
+		res[i] = g1v[i].Mul(v[i])
+	}
+
+	return res
+}
+
+func (g1v G1v) Sum() *math.G1 {
+	sum := g1v[0].Copy()
+	for i := 1; i < len(g1v); i++ {
+		sum.Add(g1v[i])
+	}
+	return sum
+}
+
 func (g1v G1v) Bytes() []byte {
 	bb := bytes.Buffer{}
 	for _, g := range g1v {
