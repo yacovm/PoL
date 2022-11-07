@@ -3,6 +3,7 @@ package pp
 import "C"
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"pol/common"
 
@@ -16,10 +17,11 @@ var (
 )
 
 type PP struct {
-	N   int
-	G1s common.G1v
-	G2s common.G2v
-	Gt  *math.Gt
+	digest []byte
+	N      int
+	G1s    common.G1v
+	G2s    common.G2v
+	Gt     *math.Gt
 }
 
 func NewPublicParams(N int) *PP {
@@ -55,7 +57,21 @@ func NewPublicParams(N int) *PP {
 
 	pp.Gt = c.GenGt.Exp(α.PowMod(c.NewZrFromInt(int64(N + 1))))
 
+	pp.setupDigest()
+
 	return pp
+}
+
+func (pp *PP) setupDigest() {
+	h := sha256.New()
+	for i := 0; i < len(pp.G1s); i++ {
+		h.Write(pp.G1s[i].Bytes())
+	}
+	for i := 0; i < len(pp.G2s); i++ {
+		h.Write(pp.G2s[i].Bytes())
+	}
+	h.Write(pp.Gt.Bytes())
+	pp.digest = h.Sum(nil)
 }
 
 func Commit(pp *PP, m common.Vec) *math.G1 {
@@ -104,4 +120,40 @@ func Verify(pp *PP, mi *math.Zr, π *math.G1, C *math.G1, i int) error {
 		return nil
 	}
 	return fmt.Errorf("%v is not an element in index %d in %v", mi, i, C)
+}
+
+func Aggregate(pp *PP, commitments common.G1v, proofs []*math.G1, RO func(*PP, []*math.G1, int) *math.Zr) *math.G1 {
+	if len(proofs) != len(commitments) {
+		panic(fmt.Sprintf("cannot aggregate %d proofs corresponding to %d commitments", len(proofs), len(commitments)))
+	}
+	var π common.G1v
+
+	for j := 0; j < len(proofs); j++ {
+		π = append(π, proofs[j].Mul(RO(pp, commitments, j)))
+	}
+
+	return π.Sum()
+}
+
+func VerifyAggregation(pp *PP, indices []int, commitments common.G1v, π *math.G1, Σ *math.Zr, RO func(*PP, []*math.G1, int) *math.Zr) error {
+	var exponents []*math.Zr
+	for i := 0; i < len(indices); i++ {
+		exponents = append(exponents, RO(pp, commitments, i))
+	}
+
+	var g2s common.G2v
+	for _, i := range indices {
+		g2s = append(g2s, pp.G2s[pp.N-i-1])
+	}
+	left := commitments.InnerProd(g2s.Mulv(exponents))
+
+	πg2 := common.G1v{π}.InnerProd(common.G2v{c.GenG2})
+	right := pp.Gt.Exp(Σ)
+	right.Mul(πg2)
+
+	if right.Equals(left) {
+		return nil
+	}
+
+	return fmt.Errorf("invalid aggregation")
 }
