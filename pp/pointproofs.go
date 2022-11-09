@@ -1,6 +1,5 @@
 package pp
 
-import "C"
 import (
 	"crypto/rand"
 	"crypto/sha256"
@@ -120,6 +119,13 @@ func Verify(pp *PP, mi *math.Zr, π *math.G1, C *math.G1, i int) error {
 		return nil
 	}
 	return fmt.Errorf("%v is not an element in index %d in %v", mi, i, C)
+}
+
+func Update(pp *PP, C *math.G1, m common.Vec, mi *math.Zr, i int) {
+	prevG := pp.G1s[i].Mul(m[i])
+	nextG := pp.G1s[i].Mul(mi)
+	C.Sub(prevG)
+	C.Add(nextG)
 }
 
 func Aggregate(pp *PP, commitments common.G1v, proofs []*math.G1, RO func(*PP, []*math.G1, int) *math.Zr) *math.G1 {

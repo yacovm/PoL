@@ -29,6 +29,32 @@ func TestPointProofCommitment(t *testing.T) {
 	}
 }
 
+func TestUpdate(t *testing.T) {
+	N := 8
+	pp := NewPublicParams(N)
+
+	var m common.Vec
+	for i := 0; i < N; i++ {
+		m = append(m, c.NewRandomZr(rand.Reader))
+	}
+
+	C := Commit(pp, m)
+
+	var m2 common.Vec
+	for i := 0; i < N; i++ {
+		m2 = append(m, c.NewRandomZr(rand.Reader))
+	}
+
+	for i := 0; i < pp.N; i++ {
+		Update(pp, C, m, m2[i], i)
+		m[i] = m2[i]
+		_, π := Open(pp, i, m)
+
+		err := Verify(pp, m2[i], π, C, i)
+		assert.NoError(t, err)
+	}
+}
+
 func TestAggregation(t *testing.T) {
 	N := 8
 	pp := NewPublicParams(N)
