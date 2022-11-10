@@ -28,11 +28,7 @@ type Vertex struct {
 	commitment *math.G1
 }
 
-func NewVerkleTree(fanOut uint16, pp *pp.PP) *Tree {
-	if pp == nil {
-		panic("PointProofs public parameters is nil")
-	}
-
+func NewVerkleTree(fanOut uint16) *Tree {
 	var id2Path func(string) []uint16
 
 	if isPowerOfTwo(fanOut) {
@@ -41,29 +37,34 @@ func NewVerkleTree(fanOut uint16, pp *pp.PP) *Tree {
 		id2Path = decimalId2Path
 	}
 	t := &Tree{
-		pp: pp,
+		pp: pp.NewPublicParams(int(fanOut + 1)),
 		tree: &sparse.Tree{
 			FanOut:  int(fanOut),
 			ID2Path: id2Path,
 		},
 	}
+
+	t.tree.UpdateInnerVertex = t.updateInnerVertex
 	return t
 
 }
 
-func (t *Tree) Get(id string) (interface{}, bool) {
-	t.tree.Get(id)
-	return nil, false
+func (t *Tree) Get(id string) (int, bool) {
+	n, ok := t.tree.Get(id)
+	if !ok {
+		return 0, false
+	}
+	return int(n.(int64)), true
 }
 
-func (t *Tree) Put(id string, data interface{}) {
+func (t *Tree) Put(id string, data int) {
 	t.validateInput(id, data)
-	t.Put(id, data)
+	t.tree.Put(id, int64(data))
 }
 
 func (t *Tree) validateInput(id string, data interface{}) {
-	if _, isInt64 := data.(int64); !isInt64 {
-		panic(fmt.Sprintf("Verkle tree leaf entries can only be of type int64"))
+	if _, isInt := data.(int); !isInt {
+		panic(fmt.Sprintf("Verkle tree leaf entries can only be of type int"))
 	}
 
 	path := t.tree.ID2Path(id)
