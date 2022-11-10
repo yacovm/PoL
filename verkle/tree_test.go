@@ -1,10 +1,17 @@
 package verkle
 
 import (
-	"fmt"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
+
+func TestVerkleTree(t *testing.T) {
+	tree := NewVerkleTree(8)
+	tree.Put("00000000", 5)
+	five, ok := tree.Get("00000000")
+	assert.Equal(t, 5, five)
+	assert.True(t, ok)
+}
 
 func TestIsPowerOfTwo(t *testing.T) {
 	assert.False(t, isPowerOfTwo(1))
@@ -34,6 +41,6 @@ func TestUpdateSum(t *testing.T) {
 	sum := c.NewZrFromInt(1000)
 	x := c.NewZrFromInt(500)
 	y := c.NewZrFromInt(300)
-	n, _ := updateSum(sum, x, y).Int()
-	fmt.Println(n)
+	sum2 := updateSum(sum, x, y)
+	assert.Equal(t, c.NewZrFromInt(800), sum2)
 }
