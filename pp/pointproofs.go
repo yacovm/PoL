@@ -12,7 +12,6 @@ import (
 var (
 	c          = math.Curves[1]
 	GroupOrder = c.GroupOrder
-	lambda     = c.FieldBytes
 )
 
 type PP struct {
