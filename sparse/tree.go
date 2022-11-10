@@ -1,23 +1,23 @@
 package sparse
 
 type Tree struct {
-	ID2Path           func(string) []uint8
-	UpdateInnerVertex func(node interface{}, descendants []interface{}) interface{}
+	ID2Path           func(string) []uint16
+	UpdateInnerVertex func(node interface{}, descendants []interface{}, descendantsLeaves bool, indexChanged int) interface{}
 	FanOut            int
-	Root              *Vertex
+	root              *Vertex
 }
 
 func (t *Tree) Get(id string) (interface{}, bool) {
 	path := t.ID2Path(id)
-	if t.Root == nil {
+	if t.root == nil {
 		return nil, false
 	}
 
-	if len(t.Root.Descendants) < t.FanOut {
+	if len(t.root.Descendants) < t.FanOut {
 		return nil, false
 	}
 
-	v := t.Root
+	v := t.root
 	for _, p := range path {
 		v = v.Descendants[p]
 		if v == nil {
@@ -30,11 +30,11 @@ func (t *Tree) Get(id string) (interface{}, bool) {
 func (t *Tree) Put(id string, data interface{}) {
 	path := t.ID2Path(id)
 
-	if t.Root == nil {
-		t.Root = &Vertex{}
+	if t.root == nil {
+		t.root = &Vertex{}
 	}
 
-	v := t.Root
+	v := t.root
 
 	for _, p := range path {
 		if len(v.Descendants) == 0 {
@@ -52,9 +52,13 @@ func (t *Tree) Put(id string, data interface{}) {
 
 	v = v.Parent
 
+	descendantsLeaves := true
+	i := len(path) - 1
 	for v != nil {
-		v.Data = t.UpdateInnerVertex(v.Data, v.RawData())
+		v.Data = t.UpdateInnerVertex(v.Data, v.RawData(), descendantsLeaves, int(path[i]))
 		v = v.Parent
+		descendantsLeaves = false
+		i--
 	}
 }
 
