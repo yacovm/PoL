@@ -124,7 +124,7 @@ func HexId2PathForFanout(fanout uint16) func(string) []uint16 {
 		b := byteArrayToBitArray(bytes)
 
 		// Pad with zeros to ensure 'b' is a multiple of bitLen
-		for len(b)%3 != 0 {
+		for len(b)%bitLen != 0 {
 			b = append(b, 0)
 		}
 
