@@ -1,14 +1,13 @@
 package verkle
 
 import (
-	"encoding/binary"
-	"encoding/hex"
 	"fmt"
-	math "github.com/IBM/mathlib"
 	"pol/common"
 	"pol/pp"
 	"pol/sparse"
 	"strconv"
+
+	math "github.com/IBM/mathlib"
 )
 
 var (
@@ -23,7 +22,7 @@ type Tree struct {
 }
 
 type Vertex struct {
-	values     common.Vec
+	values     map[uint16]*math.Zr
 	sum        *math.Zr
 	commitment *math.G1
 }
@@ -32,7 +31,7 @@ func NewVerkleTree(fanOut uint16) *Tree {
 	var id2Path func(string) []uint16
 
 	if isPowerOfTwo(fanOut) {
-		id2Path = hexId2Path
+		id2Path = sparse.HexId2PathForFanout(fanOut)
 	} else {
 		id2Path = decimalId2Path
 	}
@@ -58,7 +57,7 @@ func (t *Tree) Get(id string) (int, bool) {
 }
 
 func (t *Tree) Put(id string, data int) {
-	t.validateInput(id, data)
+	t.validateInput(id, data) // TODO: remove this later for performance improvements
 	t.tree.Put(id, int64(data))
 }
 
@@ -88,37 +87,58 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 	var v *Vertex
 	if node == nil {
 		v = &Vertex{
-			sum: c.NewZrFromInt(0),
+			sum:    c.NewZrFromInt(0),
+			values: make(map[uint16]*math.Zr),
 		}
 
-		for _, desc := range descendants {
+		var m common.Vec
+
+		for i, desc := range descendants {
 			if desc == nil {
-				v.values = append(v.values, c.NewZrFromInt(0))
+				m = append(m, c.NewZrFromInt(0))
 				continue
 			}
 			val := desc.(*Vertex).sum
 			v.sum = v.sum.Plus(val)
-			v.values = append(v.values, val)
+			v.values[uint16(i)] = val
+			m = append(m, val)
 		}
 
-		v.values = append(v.values, v.sum)
-		v.commitment = pp.Commit(t.pp, v.values)
+		// Artificially append the sum
+		m = append(m, v.sum)
+
+		v.commitment = pp.Commit(t.pp, m)
 
 		return v
 	}
 
 	v = node.(*Vertex)
-	oldVal := v.values[index]
+	oldVal := v.values[uint16(index)]
+	if oldVal == nil {
+		oldVal = c.NewZrFromInt(0)
+	}
 	newVal := descendants[index].(*Vertex).sum
 
 	v.sum = updateSum(v.sum, oldVal, newVal)
 
 	// Update index with new value
-	pp.Update(t.pp, v.commitment, v.values, newVal, index)
-	v.values[index] = newVal
+	m := make(common.Vec, t.pp.N)
+	for i := 0; i < len(m); i++ {
+		if val, exists := v.values[uint16(i)]; exists {
+			m[uint16(i)] = val
+		} else {
+			m[uint16(i)] = c.NewZrFromInt(0)
+		}
+	}
+
+	// Artificially append the sum
+	m = append(m, v.sum)
+
+	pp.Update(t.pp, v.commitment, m, newVal, index)
+	v.values[uint16(index)] = newVal
 
 	// Update last entry with sum
-	pp.Update(t.pp, v.commitment, v.values, v.sum, len(v.values))
+	pp.Update(t.pp, v.commitment, m, v.sum, len(v.values))
 
 	return v
 }
@@ -127,38 +147,62 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 	var v *Vertex
 	if node == nil {
 		v = &Vertex{
-			sum: c.NewZrFromInt(0),
+			sum:    c.NewZrFromInt(0),
+			values: make(map[uint16]*math.Zr),
 		}
 
-		for _, desc := range descendants {
+		var m common.Vec
+
+		for i, desc := range descendants {
 			if desc == nil {
-				v.values = append(v.values, c.NewZrFromInt(0))
+				m = append(m, c.NewZrFromInt(0))
 				continue
 			}
+
 			val := desc.(int64)
-			v.sum = v.sum.Plus(c.NewZrFromInt(val))
-			v.values = append(v.values, c.NewZrFromInt(val))
+			num := c.NewZrFromInt(val)
+			v.sum = v.sum.Plus(num)
+			v.values[uint16(i)] = num
+			m = append(m, num)
 		}
 
-		v.values = append(v.values, v.sum)
-		v.commitment = pp.Commit(t.pp, v.values)
+		// Artificially append the sum
+		m = append(m, v.sum)
+
+		v.commitment = pp.Commit(t.pp, m)
 
 		return v
 	}
 
 	v = node.(*Vertex)
-	oldVal := v.values[index]
+	oldVal := v.values[uint16(index)]
+	if oldVal == nil {
+		oldVal = c.NewZrFromInt(0)
+	}
 	new := descendants[index].(int64)
 	newVal := c.NewZrFromInt(new)
 
 	v.sum = updateSum(v.sum, oldVal, newVal)
 
 	// Update index with new value
-	pp.Update(t.pp, v.commitment, v.values, newVal, index)
-	v.values[index] = newVal
+	m := make(common.Vec, t.pp.N)
+	for i := 0; i < len(m); i++ {
+		if val, exists := v.values[uint16(i)]; exists {
+			m[uint16(i)] = val
+		} else {
+			m[uint16(i)] = c.NewZrFromInt(0)
+		}
+	}
+
+	// Artificially append the sum
+	m = append(m, v.sum)
+
+	// Update index with new value
+	pp.Update(t.pp, v.commitment, m, newVal, index)
+	v.values[uint16(index)] = newVal
 
 	// Update last entry with sum
-	pp.Update(t.pp, v.commitment, v.values, v.sum, len(v.values))
+	pp.Update(t.pp, v.commitment, m, v.sum, len(v.values))
 
 	return v
 }
@@ -177,24 +221,6 @@ func decimalId2Path(s string) []uint16 {
 			panic(fmt.Sprintf("%s is not a decimal string", decimal))
 		}
 		res = append(res, uint16(n))
-	}
-
-	return res
-}
-
-func hexId2Path(s string) []uint16 {
-	bytes, err := hex.DecodeString(s)
-	if err != nil {
-		panic(fmt.Sprintf("%s is not a hexadecimal string", s))
-	}
-
-	var res []uint16
-	for len(bytes) > 0 {
-		if len(bytes) < 2 {
-			bytes = []byte{0, bytes[0]}
-		}
-		res = append(res, binary.LittleEndian.Uint16(bytes[:2]))
-		bytes = bytes[2:]
 	}
 
 	return res

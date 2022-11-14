@@ -1,16 +1,32 @@
 package verkle
 
 import (
-	"github.com/stretchr/testify/assert"
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestVerkleTree(t *testing.T) {
 	tree := NewVerkleTree(8)
-	tree.Put("00000000", 5)
-	five, ok := tree.Get("00000000")
+
+	tree.Put(hash("a"), 5)
+	tree.Put(hash("b"), 6)
+
+	five, ok := tree.Get(hash("a"))
 	assert.Equal(t, 5, five)
 	assert.True(t, ok)
+
+	six, ok := tree.Get(hash("b"))
+	assert.Equal(t, 6, six)
+	assert.True(t, ok)
+}
+
+func hash(s string) string {
+	h := sha256.New()
+	h.Write([]byte(s))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func TestIsPowerOfTwo(t *testing.T) {

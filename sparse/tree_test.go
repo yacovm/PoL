@@ -1,6 +1,8 @@
 package sparse
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -91,4 +93,73 @@ func TestSparseBinarySummationTree(t *testing.T) {
 			assert.Equal(t, tst.int, val.(int))
 		})
 	}
+}
+
+func TestSparsePowerTwoSummationTree(t *testing.T) {
+	tree := Tree{
+		FanOut:  8,
+		ID2Path: HexId2PathForFanout(8),
+		UpdateInnerVertex: func(node interface{}, descendants []interface{}, _ bool, _ int) interface{} {
+			var sum int
+			for _, n := range descendants {
+				if n != nil {
+					sum += n.(int)
+				}
+			}
+			return sum
+		},
+	}
+
+	for _, tst := range []struct {
+		string
+		int
+	}{
+		{
+			hash("5"), 5,
+		},
+		{
+			hash("4"), 4,
+		},
+		{
+			hash("3"), 3,
+		},
+		{
+			hash("2"), 2,
+		},
+	} {
+		tst := tst
+		t.Run(tst.string, func(t *testing.T) {
+			tree.Put(tst.string, tst.int)
+		})
+	}
+
+	for _, tst := range []struct {
+		string
+		int
+	}{
+		{
+			hash("5"), 5,
+		},
+		/*		{
+					hash("4"), 4,
+				},
+				{
+					hash("3"), 3,
+				},
+				{
+					hash("2"), 2,
+				},*/
+	} {
+		tst := tst
+		t.Run(tst.string, func(t *testing.T) {
+			val, _ := tree.Get(tst.string)
+			assert.Equalf(t, tst.int, val, "%d is empty", tst.int)
+		})
+	}
+}
+
+func hash(s string) string {
+	h := sha256.New()
+	h.Write([]byte(s))
+	return hex.EncodeToString(h.Sum(nil))
 }
