@@ -17,7 +17,13 @@ var (
 	c          = math.Curves[1]
 	GroupOrder = c.GroupOrder
 	lambda     = c.FieldBytes
+	zeroG1     *math.G1
 )
+
+func init() {
+	zeroG1 = c.GenG1.Copy()
+	zeroG1.Sub(zeroG1)
+}
 
 type (
 	Vec []*math.Zr
@@ -132,6 +138,10 @@ func (g1v G1v) Mul(x *math.Zr) G1v {
 func (g1v G1v) MulV(v Vec) G1v {
 	res := make(G1v, len(g1v))
 	for i := 0; i < len(res); i++ {
+		if v[i].Equals(c.NewZrFromInt(0)) {
+			res[i] = zeroG1
+			continue
+		}
 		res[i] = g1v[i].Mul(v[i])
 	}
 
@@ -141,6 +151,9 @@ func (g1v G1v) MulV(v Vec) G1v {
 func (g1v G1v) Sum() *math.G1 {
 	sum := g1v[0].Copy()
 	for i := 1; i < len(g1v); i++ {
+		if g1v[i].IsInfinity() {
+			continue
+		}
 		sum.Add(g1v[i])
 	}
 	return sum
