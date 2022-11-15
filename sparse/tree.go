@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/bits"
-	"sync"
 )
 
 type Tree struct {
@@ -12,33 +11,17 @@ type Tree struct {
 	UpdateInnerVertex func(node interface{}, descendants []interface{}, descendantsLeaves bool, indexChanged int) interface{}
 	FanOut            int
 	root              *Vertex
-	lock              sync.RWMutex
-	createRoot        sync.Once
 }
 
 func (t *Tree) Get(id string) (interface{}, bool) {
 	path := t.ID2Path(id)
-	t.lock.RLock()
 	if t.root == nil {
-		t.lock.RUnlock()
 		return nil, false
 	}
-	t.lock.RUnlock()
 
 	v := t.root
 	var exists bool
-
-	releaseLocks := make([]func(), 0, len(path))
-
-	defer func() {
-		for i := len(releaseLocks) - 1; i >= 0; i-- {
-			releaseLocks[i]()
-		}
-	}()
-
 	for _, p := range path {
-		v.lock.RLock()
-		releaseLocks = append(releaseLocks, v.lock.RUnlock)
 		v, exists = v.Descendants[p]
 		if !exists {
 			return nil, false
@@ -50,87 +33,50 @@ func (t *Tree) Get(id string) (interface{}, bool) {
 func (t *Tree) Put(id string, data interface{}) {
 	path := t.ID2Path(id)
 
-	t.createRoot.Do(func() {
+	if t.root == nil {
 		t.root = &Vertex{
 			Descendants: make(map[uint16]*Vertex),
 		}
-	})
+	}
 
-	v := t.createPath(path, t.root)
+	v := t.root
+
+	for _, p := range path {
+		if len(v.Descendants) == 0 {
+			v.Descendants = make(map[uint16]*Vertex, t.FanOut)
+		}
+		if v.Descendants[p] == nil {
+			v.Descendants[p] = &Vertex{
+				Parent:      v,
+				Descendants: make(map[uint16]*Vertex),
+			}
+		}
+		v = v.Descendants[p]
+	}
 
 	v.Data = data
-	v.lock.Lock()
-	defer v.lock.Unlock()
 
 	v = v.Parent
+
 	descendantsLeaves := true
 	i := len(path) - 1
 	for v != nil {
-		v.lock.Lock()
-
-		unlockDescendants := func() {}
-		if !descendantsLeaves {
-			unlockDescendants = t.lockDescendants(v)
-		}
 		v.Data = t.UpdateInnerVertex(v.Data, v.rawData(t.FanOut), descendantsLeaves, int(path[i]))
-
-		unlockDescendants()
-
-		v.lock.Unlock()
 		v = v.Parent
 		descendantsLeaves = false
 		i--
 	}
 }
 
-func (t *Tree) lockDescendants(v *Vertex) func() {
-	unlocks := make([]func(), 0, len(v.Descendants))
-	for _, u := range v.Descendants {
-		u.lock.Lock()
-		unlocks = append(unlocks, u.lock.Unlock)
-	}
-
-	return func() {
-		for _, unlock := range unlocks {
-			unlock()
-		}
-	}
-}
-
-func (t *Tree) createPath(path []uint16, v *Vertex) *Vertex {
-	for _, p := range path {
-		v.createDescendants.Do(func() {
-			v.Descendants = make(map[uint16]*Vertex, t.FanOut)
-		})
-
-		v.lock.RLock()
-		if v.Descendants[p] == nil {
-			v.lock.RUnlock()
-
-			v.lock.Lock()
-			if v.Descendants[p] == nil {
-				v.Descendants[p] = &Vertex{
-					Parent:      v,
-					Descendants: make(map[uint16]*Vertex),
-				}
-			}
-			v = v.Descendants[p]
-			v.Parent.lock.Unlock()
-		} else {
-			v = v.Descendants[p]
-			v.Parent.lock.RUnlock()
-		}
-	}
-	return v
-}
-
 // Vertex defines a vertex of a graph
 type Vertex struct {
-	Data              interface{}
-	Descendants       map[uint16]*Vertex
-	Parent            *Vertex
-	lock              sync.RWMutex
-	createDescendants sync.Once
+	Data        interface{}
+	Descendants map[uint16]*Vertex
+	Parent      *Vertex
+}
+
+func (v *Vertex) AddDescendant(u *Vertex, at uint16) {
+	v.Descendants[at] = u
 }
 
 func (v *Vertex) rawData(size int) []interface{} {
