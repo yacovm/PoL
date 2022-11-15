@@ -1,9 +1,13 @@
 package verkle
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -21,6 +25,45 @@ func TestVerkleTree(t *testing.T) {
 	six, ok := tree.Get(hash("b"))
 	assert.Equal(t, 6, six)
 	assert.True(t, ok)
+}
+
+func TestVerkleTreeParallel(t *testing.T) {
+	tree := NewVerkleTree(128)
+
+	keysPerWorker := 20
+
+	workerNum := 100
+
+	keys := make([][]string, workerNum)
+	for i := 0; i < workerNum; i++ {
+		keys[i] = make([]string, keysPerWorker)
+		for j := 0; j < keysPerWorker; j++ {
+			b := make([]byte, 32)
+			rand.Read(b)
+			keys[i][j] = hash(string(b))
+		}
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(workerNum)
+
+	t1 := time.Now()
+	for worker := 0; worker < workerNum; worker++ {
+		go func(worker int) {
+			defer wg.Done()
+
+			for j := 0; j < keysPerWorker; j++ {
+				tree.Put(keys[worker][j], 5)
+			}
+		}(worker)
+	}
+
+	wg.Wait()
+
+	elapsed := time.Since(t1)
+	fmt.Println("elapsed:", elapsed)
+	fmt.Println("throughput:", keysPerWorker*workerNum/int(elapsed.Seconds()))
+	fmt.Println("average time per key:", elapsed/time.Duration(keysPerWorker*workerNum))
 }
 
 func hash(s string) string {
