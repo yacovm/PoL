@@ -57,7 +57,7 @@ func (t *Tree) Get(id string) (int, bool) {
 }
 
 func (t *Tree) Put(id string, data int) {
-	t.validateInput(id, data) // TODO: remove this later for performance improvements
+	//t.validateInput(id, data) // TODO: remove this later for performance improvements
 	t.tree.Put(id, int64(data))
 }
 
