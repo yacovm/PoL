@@ -15,7 +15,7 @@ var (
 )
 
 type PP struct {
-	digest []byte
+	Digest []byte
 	N      int
 	G1s    common.G1v
 	G2s    common.G2v
@@ -69,7 +69,7 @@ func (pp *PP) setupDigest() {
 		h.Write(pp.G2s[i].Bytes())
 	}
 	h.Write(pp.Gt.Bytes())
-	pp.digest = h.Sum(nil)
+	pp.Digest = h.Sum(nil)
 }
 
 func Commit(pp *PP, m common.Vec) *math.G1 {

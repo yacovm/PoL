@@ -1,6 +1,7 @@
 package verkle
 
 import (
+	"crypto/rand"
 	"fmt"
 	"pol/common"
 	"pol/pp"
@@ -22,9 +23,10 @@ type Tree struct {
 }
 
 type Vertex struct {
-	values     map[uint16]*math.Zr
-	sum        *math.Zr
-	commitment *math.G1
+	blindingFactor *math.Zr
+	values         map[uint16]*math.Zr
+	sum            *math.Zr
+	commitment     *math.G1
 }
 
 func NewVerkleTree(fanOut uint16) *Tree {
@@ -36,7 +38,7 @@ func NewVerkleTree(fanOut uint16) *Tree {
 		id2Path = decimalId2Path
 	}
 	t := &Tree{
-		pp: pp.NewPublicParams(int(fanOut + 1)),
+		pp: pp.NewPublicParams(int(fanOut + 2)),
 		tree: &sparse.Tree{
 			FanOut:  int(fanOut),
 			ID2Path: id2Path,
@@ -87,11 +89,12 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 	var v *Vertex
 	if node == nil {
 		v = &Vertex{
-			sum:    c.NewZrFromInt(0),
-			values: make(map[uint16]*math.Zr),
+			blindingFactor: c.NewRandomZr(rand.Reader),
+			sum:            c.NewZrFromInt(0),
+			values:         make(map[uint16]*math.Zr),
 		}
 
-		var m common.Vec
+		m := make(common.Vec, 0, len(descendants)+2)
 
 		for i, desc := range descendants {
 			if desc == nil {
@@ -106,6 +109,9 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 
 		// Artificially append the sum
 		m = append(m, v.sum)
+
+		// Artificially append the blinding factor
+		m = append(m, v.blindingFactor)
 
 		v.commitment = pp.Commit(t.pp, m)
 
@@ -147,11 +153,12 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 	var v *Vertex
 	if node == nil {
 		v = &Vertex{
-			sum:    c.NewZrFromInt(0),
-			values: make(map[uint16]*math.Zr),
+			blindingFactor: c.NewRandomZr(rand.Reader),
+			sum:            c.NewZrFromInt(0),
+			values:         make(map[uint16]*math.Zr),
 		}
 
-		var m common.Vec
+		m := make(common.Vec, 0, len(descendants)+2)
 
 		for i, desc := range descendants {
 			if desc == nil {
@@ -168,6 +175,9 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 
 		// Artificially append the sum
 		m = append(m, v.sum)
+
+		// Artificially append the blinding factor
+		m = append(m, v.blindingFactor)
 
 		v.commitment = pp.Commit(t.pp, m)
 
