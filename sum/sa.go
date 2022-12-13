@@ -64,7 +64,52 @@ type Proof struct {
 	π *bp.InnerProductProof
 }
 
-func NewSumArgument(pp *PP, G common.G1v, v common.Vec, r *math.Zr) (*Argument, *Proof) {
+func NewAggregatedArgument(pp *PP, G common.G1v, V common.G1v, v []common.Vec, r common.Vec) *Proof {
+	t := createHVZKChallenge(V, len(v))
+
+	vAggr := make(common.Vec, len(v[0]))
+	for i := 0; i < len(v[0]); i++ {
+		vi := make(common.Vec, len(v))
+		for j := 0; j < len(v); j++ {
+			vi[j] = v[j][i]
+		}
+		vAggr[i] = vi.InnerProd(t)
+	}
+
+	rAggr := r.InnerProd(t)
+
+	VAggr := V.MulV(t).Sum()
+
+	_, proof := NewArgument(pp, G, VAggr, vAggr, rAggr)
+	return proof
+}
+
+func createHVZKChallenge(V common.G1v, m int) common.Vec {
+	h := sha256.New()
+	h.Write(V.Bytes())
+	digest := h.Sum(nil)
+	τ := common.FieldElementFromBytes(digest)
+
+	t := make(common.Vec, m)
+	nextT := curve.NewZrFromInt(1)
+	for i := 0; i < m; i++ {
+		t[i] = nextT
+		nextT = nextT.Mul(τ)
+	}
+	return t
+}
+
+func (proof *Proof) VerifyAggregated(pp *PP, G common.G1v, V common.G1v) error {
+	t := createHVZKChallenge(V, len(V))
+	VAggr := V.MulV(t).Sum()
+
+	return proof.Verify(pp, &Argument{
+		G: G,
+		V: VAggr,
+	})
+}
+
+func NewCommitment(pp *PP, G common.G1v, v common.Vec, r *math.Zr) *Argument {
 	V := pp.F.Mul(r)
 	V.Add(G.MulV(v).Sum())
 
@@ -79,6 +124,12 @@ func NewSumArgument(pp *PP, G common.G1v, v common.Vec, r *math.Zr) (*Argument, 
 		panic("v[n-1] != Σv[j] j: 0->n-2")
 	}
 
+	return &Argument{G: G, V: V}
+}
+
+func NewArgument(pp *PP, G common.G1v, V *math.G1, v common.Vec, r *math.Zr) (*Argument, *Proof) {
+	n := len(v)
+
 	w, rPrime := common.RandVec(n), common.RandVec(1)[0]
 
 	W := pp.F.Mul(rPrime)
@@ -86,7 +137,7 @@ func NewSumArgument(pp *PP, G common.G1v, v common.Vec, r *math.Zr) (*Argument, 
 
 	c := w.InnerProd(pp.b)
 
-	x := RO(c, V, W)
+	x := randomOracleCVW(c, V, W)
 
 	rPrimeX := rPrime.Mul(x)
 
@@ -114,7 +165,7 @@ func NewSumArgument(pp *PP, G common.G1v, v common.Vec, r *math.Zr) (*Argument, 
 	return &Argument{G: G, V: V}, &Proof{π: π, W: W, c: c, ρ: ρ}
 }
 
-func RO(c *math.Zr, V *math.G1, W *math.G1) *math.Zr {
+func randomOracleCVW(c *math.Zr, V *math.G1, W *math.G1) *math.Zr {
 	h := sha256.New()
 	h.Write(c.Bytes())
 	h.Write(V.Bytes())
@@ -124,8 +175,8 @@ func RO(c *math.Zr, V *math.G1, W *math.G1) *math.Zr {
 	return x
 }
 
-func (a *Argument) Verify(pp *PP, proof *Proof) error {
-	x := RO(proof.c, a.V, proof.W)
+func (proof *Proof) Verify(pp *PP, a *Argument) error {
+	x := randomOracleCVW(proof.c, a.V, proof.W)
 
 	P := pp.F.Mul(proof.ρ)
 	P.Add(a.V)

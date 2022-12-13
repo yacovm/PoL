@@ -93,6 +93,7 @@ func (v Vec) InnerProd(v2 Vec) *math.Zr {
 	for i := 0; i < len(v); i++ {
 		sum = sum.Plus(v[i].Mul(v2[i]))
 	}
+	sum.Mod(c.GroupOrder)
 	return sum
 }
 
