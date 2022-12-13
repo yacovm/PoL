@@ -17,6 +17,7 @@ var (
 type PP struct {
 	Digest []byte
 	U      *math.G1
+	Gs     common.G1v
 	G, F   *math.G1
 	H      common.G1v
 	b      common.Vec
@@ -26,11 +27,12 @@ type PP struct {
 
 func NewPublicParams(n int) *PP {
 	pp := &PP{
-		U: common.RandGenVec(1, "IPA u")[0],
-		G: common.RandGenVec(1, "sum argument G")[0],
-		F: common.RandGenVec(1, "sum argument F")[0],
-		H: common.RandGenVec(n, "sum argument H"),
-		b: make([]*math.Zr, n),
+		Gs: common.RandGenVec(n, "sum argument Gs"),
+		U:  common.RandGenVec(1, "IPA u")[0],
+		G:  common.RandGenVec(1, "sum argument G")[0],
+		F:  common.RandGenVec(1, "sum argument F")[0],
+		H:  common.RandGenVec(n, "sum argument H"),
+		b:  make([]*math.Zr, n),
 	}
 
 	for i := 0; i < n; i++ {
@@ -53,7 +55,6 @@ func NewPublicParams(n int) *PP {
 }
 
 type Argument struct {
-	G common.G1v
 	V *math.G1
 }
 
@@ -64,7 +65,7 @@ type Proof struct {
 	π *bp.InnerProductProof
 }
 
-func NewAggregatedArgument(pp *PP, G common.G1v, V common.G1v, v []common.Vec, r common.Vec) *Proof {
+func NewAggregatedArgument(pp *PP, V common.G1v, v []common.Vec, r common.Vec) *Proof {
 	t := createHVZKChallenge(V, len(v))
 
 	vAggr := make(common.Vec, len(v[0]))
@@ -80,7 +81,7 @@ func NewAggregatedArgument(pp *PP, G common.G1v, V common.G1v, v []common.Vec, r
 
 	VAggr := V.MulV(t).Sum()
 
-	_, proof := NewArgument(pp, G, VAggr, vAggr, rAggr)
+	_, proof := NewArgument(pp, VAggr, vAggr, rAggr)
 	return proof
 }
 
@@ -99,17 +100,17 @@ func createHVZKChallenge(V common.G1v, m int) common.Vec {
 	return t
 }
 
-func (proof *Proof) VerifyAggregated(pp *PP, G common.G1v, V common.G1v) error {
+func (proof *Proof) VerifyAggregated(pp *PP, V common.G1v) error {
 	t := createHVZKChallenge(V, len(V))
 	VAggr := V.MulV(t).Sum()
 
 	return proof.Verify(pp, &Argument{
-		G: G,
 		V: VAggr,
 	})
 }
 
-func NewCommitment(pp *PP, G common.G1v, v common.Vec, r *math.Zr) *Argument {
+func NewCommitment(pp *PP, v common.Vec, r *math.Zr) *Argument {
+	G := pp.Gs
 	V := pp.F.Mul(r)
 	V.Add(G.MulV(v).Sum())
 
@@ -124,16 +125,16 @@ func NewCommitment(pp *PP, G common.G1v, v common.Vec, r *math.Zr) *Argument {
 		panic("v[n-1] != Σv[j] j: 0->n-2")
 	}
 
-	return &Argument{G: G, V: V}
+	return &Argument{V: V}
 }
 
-func NewArgument(pp *PP, G common.G1v, V *math.G1, v common.Vec, r *math.Zr) (*Argument, *Proof) {
+func NewArgument(pp *PP, V *math.G1, v common.Vec, r *math.Zr) (*Argument, *Proof) {
 	n := len(v)
 
 	w, rPrime := common.RandVec(n), common.RandVec(1)[0]
 
 	W := pp.F.Mul(rPrime)
-	W.Add(G.MulV(w).Sum())
+	W.Add(pp.Gs.MulV(w).Sum())
 
 	c := w.InnerProd(pp.b)
 
@@ -150,7 +151,7 @@ func NewArgument(pp *PP, G common.G1v, V *math.G1, v common.Vec, r *math.Zr) (*A
 	P.Add(pp.B)
 
 	ipaPP := &bp.PP{
-		G: G,
+		G: pp.Gs,
 		H: pp.H,
 		U: pp.U,
 	}
@@ -162,7 +163,7 @@ func NewArgument(pp *PP, G common.G1v, V *math.G1, v common.Vec, r *math.Zr) (*A
 
 	π := bp.NewInnerProdArgument(ipaPP, a, b).Prove()
 
-	return &Argument{G: G, V: V}, &Proof{π: π, W: W, c: c, ρ: ρ}
+	return &Argument{V: V}, &Proof{π: π, W: W, c: c, ρ: ρ}
 }
 
 func randomOracleCVW(c *math.Zr, V *math.G1, W *math.G1) *math.Zr {
@@ -184,7 +185,7 @@ func (proof *Proof) Verify(pp *PP, a *Argument) error {
 	P.Add(pp.B)
 
 	ipaPP := &bp.PP{
-		G: a.G,
+		G: pp.Gs,
 		H: pp.H,
 		U: pp.U,
 	}

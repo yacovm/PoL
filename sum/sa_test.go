@@ -12,17 +12,16 @@ import (
 func TestSumArgument(t *testing.T) {
 	n := 64
 	pp := NewPublicParams(n)
-	G := common.RandGenVec(n, "test")
 
-	v, r, V := randomCommitment(n, pp, G)
+	v, r, V := randomCommitment(n, pp)
 
-	sa, π := NewArgument(pp, G, V, v, r)
+	sa, π := NewArgument(pp, V, v, r)
 
 	err := π.Verify(pp, sa)
 	assert.NoError(t, err)
 }
 
-func randomCommitment(n int, pp *PP, G []*math.G1) ([]*math.Zr, *math.Zr, *math.G1) {
+func randomCommitment(n int, pp *PP) ([]*math.Zr, *math.Zr, *math.G1) {
 	v := make([]*math.Zr, n)
 	v[n-1] = curve.NewZrFromInt(0)
 	for i := 0; i < n-1; i++ {
@@ -33,7 +32,7 @@ func randomCommitment(n int, pp *PP, G []*math.G1) ([]*math.Zr, *math.Zr, *math.
 
 	r := curve.NewRandomZr(rand.Reader)
 
-	V := NewCommitment(pp, G, v, r).V
+	V := NewCommitment(pp, v, r).V
 	return v, r, V
 }
 
@@ -41,21 +40,20 @@ func TestAggregatedSumArgument(t *testing.T) {
 	n := 64
 
 	pp := NewPublicParams(n)
-	G := common.RandGenVec(n, "test")
 
 	var Vs common.G1v
 	var vs []common.Vec
 	var rs common.Vec
 
 	for i := 0; i < 100; i++ {
-		v, r, V := randomCommitment(n, pp, G)
+		v, r, V := randomCommitment(n, pp)
 		Vs = append(Vs, V)
 		vs = append(vs, v)
 		rs = append(rs, r)
 	}
 
-	π := NewAggregatedArgument(pp, G, Vs, vs, rs)
+	π := NewAggregatedArgument(pp, Vs, vs, rs)
 
-	err := π.VerifyAggregated(pp, G, Vs)
+	err := π.VerifyAggregated(pp, Vs)
 	assert.NoError(t, err)
 }
