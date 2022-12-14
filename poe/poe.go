@@ -1,6 +1,7 @@
 package poe
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -18,18 +19,18 @@ var (
 )
 
 type PP struct {
-	Digest         []byte
-	G0, G1, H0, H1 *math.G1
-	PP             *pp.PP
+	Digest []byte
+	G, H   common.G1v
+	F      *math.G1
+	PP     *pp.PP
 }
 
-func NewPublicParams(n int) *PP {
+func NewPublicParams(n, m int) *PP {
 	pp := &PP{
 		PP: pp.NewPublicParams(n),
-		G0: common.RandGenVec(1, "G0")[0],
-		G1: common.RandGenVec(1, "G1")[0],
-		H0: common.RandGenVec(1, "H0")[0],
-		H1: common.RandGenVec(1, "H1")[0],
+		G:  common.RandGenVec(m, "POE G"),
+		H:  common.RandGenVec(m, "POE H"),
+		F:  common.RandGenVec(1, "POE F")[0],
 	}
 	pp.setupDigest()
 
@@ -38,29 +39,182 @@ func NewPublicParams(n int) *PP {
 
 func (pp *PP) setupDigest() {
 	h := sha256.New()
-	h.Write(pp.G0.Bytes())
-	h.Write(pp.G1.Bytes())
-	h.Write(pp.H0.Bytes())
-	h.Write(pp.H1.Bytes())
+	h.Write(pp.G.Bytes())
+	h.Write(pp.H.Bytes())
+	h.Write(pp.F.Bytes())
 	h.Write(pp.PP.Digest)
 	pp.Digest = h.Sum(nil)
 }
 
 type Equalities struct {
-	RO   func(U, V, W, A common.G1v, ppDigest []byte) (*math.Zr, *math.Zr, *math.Zr, *math.G1)
+	RO   func(gs common.G1v, integers []int, ppDigest []byte, n int) common.Vec
 	PP   *PP
 	V, W common.G1v
 	I, J []int
 }
 
+type AggregatedProof struct {
+	IPP          *bp.InnerProductProof
+	c, ρ         *math.Zr
+	U, V, Ω      *math.G1
+	Waggr, Vaggr common.G1v
+}
+
+func (e *Equalities) Verify(proof *AggregatedProof) error {
+	var groupElements common.G1v
+	groupElements = append(groupElements, proof.Vaggr...)
+	groupElements = append(groupElements, proof.Waggr...)
+	groupElements = append(groupElements, e.V...)
+	groupElements = append(groupElements, e.W...)
+
+	x := e.RO(groupElements, nil, e.PP.Digest, 1)[0]
+
+	m := len(e.V)
+	n := e.PP.PP.N
+
+	groupElements = append(groupElements, proof.U)
+	groupElements = append(groupElements, proof.V)
+
+	ts := e.RO(groupElements, nil, e.PP.Digest, 2*m)
+
+	g2sV := make(common.G2v, m)
+	for k := 0; k < m; k++ {
+		g2sV[k] = e.PP.PP.G2s[n-1-e.I[k]]
+	}
+
+	g2sW := make(common.G2v, m)
+	for k := 0; k < m; k++ {
+		g2sW[k] = e.PP.PP.G2s[n-1-e.J[k]]
+	}
+
+	numerator := e.V.Add(proof.Vaggr.Mul(x)).MulV(ts.Evens()).InnerProd(g2sV)
+	numerator.Mul(e.W.Add(proof.Waggr.Mul(x)).MulV(ts.Odds()).InnerProd(g2sW))
+
+	denominator := common.G1v{proof.Ω}.InnerProd(common.G2v{c.GenG2.Copy()})
+	denominator.Mul(common.G1v{e.PP.PP.G1s[0]}.InnerProd(common.G2v{e.PP.PP.G2s[len(e.PP.PP.G2s)-1]}))
+
+	if !numerator.Equals(denominator) {
+		return fmt.Errorf("PoE invalid: aggregation condition not satisfied")
+	}
+
+	b := ts.Evens().Add(ts.Odds())
+	P := e.PP.F.Mul(proof.ρ)
+	P.Add(proof.U.Mul(x))
+	P.Add(proof.V)
+	P.Add(e.PP.H.MulV(b).Sum())
+
+	bpPP := bp.NewPublicParams(n)
+	bpPP.G = e.PP.G
+	bpPP.H = e.PP.H
+
+	proof.IPP.C = proof.c
+	proof.IPP.P = P
+
+	return proof.IPP.Verify(bpPP)
+
+}
+
 // Prove proves equality of 'v[i]' and 'w[j]' for all indices in I,J.
 // The last elements in every 'v' and 'w' should be blinding factors.
-func (e *Equalities) Prove(v, w []common.Vec) *Proof {
+func (e *Equalities) Prove(vs, ws []common.Vec) *AggregatedProof {
 	m := len(e.V)
 	// Sanity checks for lengths
-	e.validateInputLength(v, w, m)
+	e.validateInputLength(vs, ws, m)
 
-	uk, ηk, vk := c.NewRandomZr(rand.Reader), c.NewRandomZr(rand.Reader), c.NewRandomZr(rand.Reader)
+	n := len(vs[0])
+
+	Vaggr := make(common.G1v, m)
+	Waggr := make(common.G1v, m)
+	Ωv := make(common.G1v, m)
+	Ωw := make(common.G1v, m)
+
+	ΩvPP := make(common.G1v, m)
+	ΩwPP := make(common.G1v, m)
+
+	u := make(common.Vec, m)
+
+	for k := 0; k < m; k++ {
+		uk, ηk, νk := c.NewRandomZr(rand.Reader), c.NewRandomZr(rand.Reader), c.NewRandomZr(rand.Reader)
+
+		u[k] = uk
+
+		Vk := e.PP.PP.G1s[e.I[k]].Mul(uk)
+		Vk.Add(e.PP.PP.G1s[n-1].Mul(νk))
+		Vaggr[k] = Vk
+
+		ΩVk := e.PP.PP.G1s[len(e.PP.PP.G1s)-1-e.I[k]].Mul(νk)
+		Ωv[k] = ΩVk
+
+		Wk := e.PP.PP.G1s[e.J[k]].Mul(uk)
+		Wk.Add(e.PP.PP.G1s[n-1].Mul(ηk))
+		Waggr[k] = Wk
+		ΩWk := e.PP.PP.G1s[len(e.PP.PP.G1s)-1-e.J[k]].Mul(ηk)
+		Ωw[k] = ΩWk
+
+		_, ΩVppk := pp.Open(e.PP.PP, e.I[k], vs[k])
+		_, ΩWppk := pp.Open(e.PP.PP, e.J[k], ws[k])
+
+		ΩvPP[k] = ΩVppk
+		ΩwPP[k] = ΩWppk
+	}
+
+	var groupElements common.G1v
+	groupElements = append(groupElements, Vaggr...)
+	groupElements = append(groupElements, Waggr...)
+	groupElements = append(groupElements, e.V...)
+	groupElements = append(groupElements, e.W...)
+
+	x := e.RO(groupElements, nil, e.PP.Digest, 1)[0]
+
+	r1, r2 := c.NewRandomZr(rand.Reader), c.NewRandomZr(rand.Reader)
+
+	v := make(common.Vec, m)
+	for i := 0; i < m; i++ {
+		v[i] = vs[i][e.I[i]]
+	}
+
+	U := e.PP.F.Mul(r1)
+	U.Add(e.PP.G.MulV(u).Sum())
+
+	V := e.PP.F.Mul(r2)
+	V.Add(e.PP.G.MulV(v).Sum())
+
+	groupElements = append(groupElements, U)
+	groupElements = append(groupElements, V)
+
+	ts := e.RO(groupElements, nil, e.PP.Digest, 2*m)
+
+	Ω := ΩvPP.Add(Ωv.Mul(x)).MulV(ts.Evens()).Sum()
+	Ω.Add(ΩwPP.Add(Ωw.Mul(x)).MulV(ts.Odds()).Sum())
+
+	a := u.Mul(x).Add(v)
+	b := ts.Evens().Add(ts.Odds())
+
+	ρ := r1.Plus(r2.Mul(x))
+	ρ = negZr(ρ)
+
+	P := e.PP.F.Mul(ρ)
+	P.Add(U.Mul(x))
+	P.Add(V)
+	P.Add(e.PP.H.MulV(b).Sum())
+
+	bpPP := bp.NewPublicParams(n)
+	bpPP.G = e.PP.G
+	bpPP.H = e.PP.H
+	ipa := bp.NewInnerProdArgument(bpPP, a, b)
+	ipa.P = P
+
+	return &AggregatedProof{
+		IPP:   ipa.Prove(),
+		ρ:     ρ,
+		V:     V,
+		U:     U,
+		Ω:     Ω,
+		Vaggr: Vaggr,
+		Waggr: Waggr,
+		c:     a.InnerProd(b),
+	}
+
 }
 
 func (e *Equalities) validateInputLength(v []common.Vec, w []common.Vec, m int) {
@@ -76,13 +230,37 @@ func (e *Equalities) validateInputLength(v []common.Vec, w []common.Vec, m int) 
 }
 
 type Equality struct {
-	RO   func(gs common.G1v, integers []int, ppDigest []byte, n int) []*math.Zr
+	RO   func(gs common.G1v, integers []int, ppDigest []byte, n int) common.Vec
 	PP   *PP
 	V, W *math.G1
 	I, J int
 }
 
-func RO(gs common.G1v, integers []int, ppDigest []byte, n int) []*math.Zr {
+func RO(gs common.G1v, integers []int, ppDigest []byte, n int) common.Vec {
+	h := hmac.New(sha256.New, compressParameters(gs, integers, ppDigest))
+	scalar := func(i uint16) *math.Zr {
+		buff := make([]byte, 2)
+		binary.BigEndian.PutUint16(buff, i)
+		h.Write(buff)
+		digest := h.Sum(nil)
+		h.Reset()
+		return common.FieldElementFromBytes(digest)
+	}
+
+	scalars := make([]*math.Zr, n)
+	for i := 0; i < n; i++ {
+		scalars[i] = scalar(uint16(i))
+	}
+	return scalars
+
+}
+
+func negZr(x *math.Zr) *math.Zr {
+	zero := c.NewZrFromInt(0)
+	return c.ModSub(zero, x, c.GroupOrder)
+}
+
+func compressParameters(gs common.G1v, integers []int, ppDigest []byte) []byte {
 	h := sha256.New()
 	for _, g := range gs {
 		h.Write(g.Bytes())
@@ -96,23 +274,7 @@ func RO(gs common.G1v, integers []int, ppDigest []byte, n int) []*math.Zr {
 
 	h.Write(ppDigest)
 
-	preDigest := h.Sum(nil)
-
-	scalar := func(i uint16) *math.Zr {
-		h = sha256.New()
-		h.Write(preDigest)
-		buff := make([]byte, 2)
-		binary.BigEndian.PutUint16(buff, i)
-		h.Write(buff)
-		return common.FieldElementFromBytes(h.Sum(nil))
-	}
-
-	scalars := make([]*math.Zr, n)
-	for i := 0; i < n; i++ {
-		scalars[i] = scalar(uint16(i))
-	}
-	return scalars
-
+	return h.Sum(nil)
 }
 
 type Proof struct {

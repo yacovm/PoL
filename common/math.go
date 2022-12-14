@@ -65,6 +65,38 @@ func (v Vec) Add(v2 Vec) Vec {
 	return res
 }
 
+func (v Vec) Evens() Vec {
+	if len(v)%2 != 0 {
+		panic(fmt.Sprintf("vector is of odd(%d) length", len(v)))
+	}
+
+	res := make(Vec, len(v)/2)
+
+	j := 0
+
+	for i := 0; i < len(v); i += 2 {
+		res[j] = v[i].Copy()
+		j++
+	}
+	return res
+}
+
+func (v Vec) Odds() Vec {
+	if len(v)%2 != 0 {
+		panic(fmt.Sprintf("vector is of odd(%d) length", len(v)))
+	}
+
+	res := make(Vec, len(v)/2)
+
+	j := 0
+
+	for i := 1; i < len(v); i += 2 {
+		res[j] = v[i].Copy()
+		j++
+	}
+	return res
+}
+
 func (v Vec) Mul(x *math.Zr) Vec {
 	res := make(Vec, len(v))
 	for i := 0; i < len(v); i++ {
