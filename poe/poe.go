@@ -3,6 +3,7 @@ package poe
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"pol/bp"
 	"pol/common"
@@ -45,84 +46,116 @@ func (pp *PP) setupDigest() {
 	pp.Digest = h.Sum(nil)
 }
 
+type Equalities struct {
+	RO   func(U, V, W, A common.G1v, ppDigest []byte) (*math.Zr, *math.Zr, *math.Zr, *math.G1)
+	PP   *PP
+	V, W common.G1v
+	I, J []int
+}
+
+// Prove proves equality of 'v[i]' and 'w[j]' for all indices in I,J.
+// The last elements in every 'v' and 'w' should be blinding factors.
+func (e *Equalities) Prove(v, w []common.Vec) *Proof {
+	m := len(e.V)
+	// Sanity checks for lengths
+	e.validateInputLength(v, w, m)
+
+	uk, ηk, vk := c.NewRandomZr(rand.Reader), c.NewRandomZr(rand.Reader), c.NewRandomZr(rand.Reader)
+}
+
+func (e *Equalities) validateInputLength(v []common.Vec, w []common.Vec, m int) {
+	if len(e.W) != m {
+		panic(fmt.Sprintf("V is of size %d but W is of size %d", m, len(e.W)))
+	}
+	if len(v) != m {
+		panic(fmt.Sprintf("V is of size %d but v is of size %d", m, len(v)))
+	}
+	if len(w) != m {
+		panic(fmt.Sprintf("V is of size %d but w is of size %d", m, len(w)))
+	}
+}
+
 type Equality struct {
-	RO   func(U, V, W, A *math.G1, ppDigest []byte) (*math.Zr, *math.Zr, *math.Zr, *math.G1)
+	RO   func(gs common.G1v, integers []int, ppDigest []byte, n int) []*math.Zr
 	PP   *PP
 	V, W *math.G1
 	I, J int
 }
 
-func RO(U, V, W, A *math.G1, ppDigest []byte) (*math.Zr, *math.Zr, *math.Zr, *math.G1) {
+func RO(gs common.G1v, integers []int, ppDigest []byte, n int) []*math.Zr {
 	h := sha256.New()
-	h.Write(U.Bytes())
-	h.Write(V.Bytes())
-	h.Write(A.Bytes())
-	h.Write(W.Bytes())
+	for _, g := range gs {
+		h.Write(g.Bytes())
+	}
+
+	for _, n := range integers {
+		buff := make([]byte, 2)
+		binary.BigEndian.PutUint16(buff, uint16(n))
+		h.Write(buff)
+	}
+
 	h.Write(ppDigest)
+
 	preDigest := h.Sum(nil)
 
-	scalar := func(i uint8) *math.Zr {
+	scalar := func(i uint16) *math.Zr {
 		h = sha256.New()
 		h.Write(preDigest)
-		h.Write([]byte{i})
+		buff := make([]byte, 2)
+		binary.BigEndian.PutUint16(buff, i)
+		h.Write(buff)
 		return common.FieldElementFromBytes(h.Sum(nil))
 	}
 
-	group := func() *math.G1 {
-		h = sha256.New()
-		h.Write(preDigest)
-		h.Write([]byte("G"))
-		return common.HashToG1(h.Sum(nil))
+	scalars := make([]*math.Zr, n)
+	for i := 0; i < n; i++ {
+		scalars[i] = scalar(uint16(i))
 	}
-
-	return scalar(0), scalar(1), scalar(2), group()
+	return scalars
 
 }
 
 type Proof struct {
 	IPP *bp.InnerProductProof
-	A   *math.G1
 	C   *math.Zr
-	U   *math.G1
+	V   *math.G1
+	W   *math.G1
 	Ω   *math.G1
 }
 
 func (e *Equality) Verify(Υ *Proof) error {
-	U := Υ.U
-	A := Υ.A
+	x := e.RO(common.G1v{e.V, e.W, Υ.V, Υ.W}, nil, e.PP.Digest, 1)[0]
+	g := c.GenG1.Copy()
 
-	θ0, θ1, θ2, IPA_U := e.RO(U, e.V, e.W, A, e.PP.Digest)
-	θ12 := θ1.Plus(θ2)
+	ts := e.RO(common.G1v{e.V, e.W, Υ.V.Mul(x), Υ.W.Mul(x), g.Mul(Υ.C)}, []int{e.I, e.J}, e.PP.Digest, 2)
+	t0 := ts[0]
+	t1 := ts[1]
 
-	B := common.G1v{e.PP.H0, e.PP.H1}.MulV(common.Vec{θ0, θ12}).Sum()
+	VVx := Υ.V.Mul(x)
+	VVx.Add(e.V)
+	VVx = VVx.Mul(t0)
 
-	// Prepare IPA verification statement
-	P := A.Copy()
-	P.Add(B)
+	WWx := Υ.W.Mul(x)
+	WWx.Add(e.W)
+	WWx = WWx.Mul(t1)
 
-	// Overwrite P,c in IPP anyway, do not trust what is there from the prover
-	Υ.IPP.P = P
-	Υ.IPP.C = Υ.C
+	r := common.G1v{VVx}.InnerProd(common.G2v{e.PP.PP.G2s[len(e.PP.PP.G2s)-1-e.I]})
+	l := common.G1v{WWx}.InnerProd(common.G2v{e.PP.PP.G2s[len(e.PP.PP.G2s)-1-e.J]})
 
-	if err := Υ.IPP.Verify(&bp.PP{
-		G: []*math.G1{e.PP.G0, e.PP.G1},
-		H: []*math.G1{e.PP.H0, e.PP.H1},
-		U: IPA_U,
-	}); err != nil {
-		return err
-	}
+	numerator := r
+	r.Mul(l)
 
-	θ := []*math.Zr{θ0, θ1, θ2}
-	ro := func(_ *pp.PP, _ []*math.G1, i int) *math.Zr {
-		return θ[i]
-	}
+	l = common.G1v{Υ.Ω}.InnerProd(common.G2v{c.GenG2.Copy()})
+	r = common.G1v{e.PP.PP.G1s[0]}.InnerProd(common.G2v{e.PP.PP.G2s[len(e.PP.PP.G2s)-1]}).Exp(Υ.C.Mul(t0.Plus(t1)))
+	l.Mul(r)
 
-	if err := pp.VerifyAggregation(e.PP.PP, []int{0, e.I, e.J}, common.G1v{U, e.V, e.W}, Υ.Ω, Υ.C, ro); err != nil {
-		return err
+	denominator := l
+
+	if !numerator.Equals(denominator) {
+		return fmt.Errorf("PoE invalid")
 	}
 
 	return nil
-
 }
 
 // Prove proves equality of 'v[i]' and 'w[j]'.
@@ -137,44 +170,47 @@ func (e *Equality) Prove(v, w common.Vec) *Proof {
 		panic("|v| != |w|")
 	}
 
-	t := c.NewRandomZr(rand.Reader)
+	n := len(v)
 
-	u := make(common.Vec, len(v))
-	for i := 1; i < len(u); i++ {
-		u[i] = c.NewZrFromInt(0)
-	}
-	u[0] = c.NewRandomZr(rand.Reader)
-	u[len(u)-1] = t
+	u, η, ν := c.NewRandomZr(rand.Reader), c.NewRandomZr(rand.Reader), c.NewRandomZr(rand.Reader)
 
-	U := pp.Commit(e.PP.PP, u)
+	V := e.PP.PP.G1s[e.I].Mul(u)
+	V.Add(e.PP.PP.G1s[n-1].Mul(ν))
+	ΩV := e.PP.PP.G1s[len(e.PP.PP.G1s)-1-e.I].Mul(ν)
 
-	_, ΩU := pp.Open(e.PP.PP, 0, u)
-	_, ΩV := pp.Open(e.PP.PP, e.I, v)
-	_, ΩW := pp.Open(e.PP.PP, e.J, w)
+	W := e.PP.PP.G1s[e.J].Mul(u)
+	W.Add(e.PP.PP.G1s[n-1].Mul(η))
+	ΩW := e.PP.PP.G1s[len(e.PP.PP.G1s)-1-e.J].Mul(η)
 
-	A := common.G1v{e.PP.G0, e.PP.G1}.MulV(common.Vec{u[0], v[e.I]}).Sum()
+	x := e.RO(common.G1v{e.V, e.W, V, W}, nil, e.PP.Digest, 1)[0]
 
-	θ0, θ1, θ2, IPA_U := e.RO(U, e.V, e.W, A, e.PP.Digest)
-	θ12 := θ1.Plus(θ2)
+	g := c.GenG1.Copy()
 
-	Ω := common.G1v{ΩU, ΩV, ΩW}.MulV(common.Vec{θ0, θ1, θ2}).Sum()
+	c := v[e.I].Plus(u.Mul(x))
 
-	c := common.Vec{u[0], v[e.I]}.InnerProd(common.Vec{θ0, θ12})
+	ts := e.RO(common.G1v{e.V, e.W, V.Mul(x), W.Mul(x), g.Mul(c)}, []int{e.I, e.J}, e.PP.Digest, 2)
+	t0 := ts[0]
+	t1 := ts[1]
 
-	ipa := bp.NewInnerProdArgument(&bp.PP{
-		G: []*math.G1{e.PP.G0, e.PP.G1},
-		H: []*math.G1{e.PP.H0, e.PP.H1},
-		U: IPA_U,
-	}, common.Vec{u[0], v[e.I]}, common.Vec{θ0, θ12})
+	_, ΩVpp := pp.Open(e.PP.PP, e.I, v)
+	_, ΩWpp := pp.Open(e.PP.PP, e.J, w)
 
-	Π := ipa.Prove()
+	ΩV = ΩV.Mul(x)
+	ΩV.Add(ΩVpp)
+	ΩV = ΩV.Mul(t0)
+
+	ΩW = ΩW.Mul(x)
+	ΩW.Add(ΩWpp)
+	ΩW = ΩW.Mul(t1)
+
+	Ω := ΩV
+	Ω.Add(ΩW)
 
 	return &Proof{
-		U:   U,
-		A:   A,
-		C:   c,
-		IPP: Π,
-		Ω:   Ω,
+		Ω: Ω,
+		V: V,
+		W: W,
+		C: c,
 	}
 
 }
