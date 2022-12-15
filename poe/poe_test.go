@@ -3,75 +3,94 @@ package poe
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"github.com/stretchr/testify/assert"
 	"pol/common"
 	"pol/pp"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestProofOfEqualities(t *testing.T) {
-
-	n := 64
-	m := 1
+	n := 32
+	m := 128
 
 	publicParams := NewPublicParams(n, m)
 
-	v := common.RandVec(n)
-	w := common.RandVec(n)
+	vs := make([]common.Vec, m)
+	ws := make([]common.Vec, m)
 
-	// Select a random index for each vector
-	i := randIndex(t, n)
-	j := randIndex(t, n)
+	Vs := make(common.G1v, m)
+	Ws := make(common.G1v, m)
 
-	v[i] = w[j]
+	I := make([]int, m)
+	J := make([]int, m)
 
-	V := pp.Commit(publicParams.PP, v)
-	W := pp.Commit(publicParams.PP, w)
+	for k := 0; k < m; k++ {
+		v := common.RandVec(n)
+		w := common.RandVec(n)
+
+		// Select a random index for each vector
+		i := randIndex(t, n-1)
+		j := randIndex(t, n-1)
+
+		I[k] = i
+		J[k] = j
+
+		v[i] = w[j]
+
+		vs[k] = v
+		ws[k] = w
+
+		V := pp.Commit(publicParams.PP, v)
+		W := pp.Commit(publicParams.PP, w)
+
+		Vs[k] = V
+		Ws[k] = W
+	}
 
 	eq := &Equalities{
 		RO: RO,
 		PP: publicParams,
-		W:  common.G1v{W},
-		V:  common.G1v{V},
-		I:  []int{i},
-		J:  []int{j},
+		W:  Ws,
+		V:  Vs,
+		I:  I,
+		J:  J,
 	}
 
-	proof := eq.Prove([]common.Vec{v}, []common.Vec{w})
+	proof := eq.Prove(vs, ws)
 	err := eq.Verify(proof)
 	assert.NoError(t, err)
 }
 
 func TestProofOfEquality(t *testing.T) {
+	for j := 0; j < 100; j++ {
+		n := 64
+		publicParams := NewPublicParams(n, 1)
 
-	n := 64
-	publicParams := NewPublicParams(n, 1)
+		v := common.RandVec(n)
+		w := common.RandVec(n)
 
-	v := common.RandVec(n)
-	w := common.RandVec(n)
+		// Select a random index for each vector
+		i := randIndex(t, n-1)
+		j := randIndex(t, n-1)
 
-	// Select a random index for each vector
-	i := randIndex(t, n)
-	j := randIndex(t, n)
+		v[i] = w[j]
 
-	v[i] = w[j]
+		V := pp.Commit(publicParams.PP, v)
+		W := pp.Commit(publicParams.PP, w)
 
-	V := pp.Commit(publicParams.PP, v)
-	W := pp.Commit(publicParams.PP, w)
+		eq := &Equality{
+			RO: RO,
+			PP: publicParams,
+			W:  W,
+			V:  V,
+			I:  i,
+			J:  j,
+		}
 
-	eq := &Equality{
-		RO: RO,
-		PP: publicParams,
-		W:  W,
-		V:  V,
-		I:  i,
-		J:  j,
+		proof := eq.Prove(v, w)
+		err := eq.Verify(proof)
+		assert.NoErrorf(t, err, "i: %d, j: %d\n", i, j)
 	}
-
-	proof := eq.Prove(v, w)
-	err := eq.Verify(proof)
-	assert.NoError(t, err)
 }
 
 func randIndex(t *testing.T, n int) int {

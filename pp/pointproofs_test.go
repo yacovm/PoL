@@ -12,7 +12,7 @@ import (
 )
 
 func TestPointProofCommitment(t *testing.T) {
-	N := 8
+	N := 128
 	pp := NewPublicParams(N)
 
 	var m common.Vec
@@ -30,7 +30,7 @@ func TestPointProofCommitment(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
-	N := 8
+	N := 128
 	pp := NewPublicParams(N)
 
 	var m common.Vec

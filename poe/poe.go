@@ -91,7 +91,7 @@ func (e *Equalities) Verify(proof *AggregatedProof) error {
 	numerator.Mul(e.W.Add(proof.Waggr.Mul(x)).MulV(ts.Odds()).InnerProd(g2sW))
 
 	denominator := common.G1v{proof.Ω}.InnerProd(common.G2v{c.GenG2.Copy()})
-	denominator.Mul(common.G1v{e.PP.PP.G1s[0]}.InnerProd(common.G2v{e.PP.PP.G2s[len(e.PP.PP.G2s)-1]}))
+	denominator.Mul(common.G1v{e.PP.PP.G1s[0].Mul(proof.c)}.InnerProd(common.G2v{e.PP.PP.G2s[len(e.PP.PP.G2s)-1]}))
 
 	if !numerator.Equals(denominator) {
 		return fmt.Errorf("PoE invalid: aggregation condition not satisfied")
@@ -190,7 +190,7 @@ func (e *Equalities) Prove(vs, ws []common.Vec) *AggregatedProof {
 	a := u.Mul(x).Add(v)
 	b := ts.Evens().Add(ts.Odds())
 
-	ρ := r1.Plus(r2.Mul(x))
+	ρ := r1.Mul(x).Plus(r2)
 	ρ = negZr(ρ)
 
 	P := e.PP.F.Mul(ρ)
@@ -204,15 +204,17 @@ func (e *Equalities) Prove(vs, ws []common.Vec) *AggregatedProof {
 	ipa := bp.NewInnerProdArgument(bpPP, a, b)
 	ipa.P = P
 
+	ipp := ipa.Prove()
+
 	return &AggregatedProof{
-		IPP:   ipa.Prove(),
+		IPP:   ipp,
 		ρ:     ρ,
 		V:     V,
 		U:     U,
 		Ω:     Ω,
 		Vaggr: Vaggr,
 		Waggr: Waggr,
-		c:     a.InnerProd(b),
+		c:     ipp.C,
 	}
 
 }
@@ -244,7 +246,10 @@ func RO(gs common.G1v, integers []int, ppDigest []byte, n int) common.Vec {
 		h.Write(buff)
 		digest := h.Sum(nil)
 		h.Reset()
-		return common.FieldElementFromBytes(digest)
+
+		result := common.FieldElementFromBytes(digest)
+		result.Mod(GroupOrder)
+		return result
 	}
 
 	scalars := make([]*math.Zr, n)
@@ -305,7 +310,7 @@ func (e *Equality) Verify(Υ *Proof) error {
 	l := common.G1v{WWx}.InnerProd(common.G2v{e.PP.PP.G2s[len(e.PP.PP.G2s)-1-e.J]})
 
 	numerator := r
-	r.Mul(l)
+	numerator.Mul(l)
 
 	l = common.G1v{Υ.Ω}.InnerProd(common.G2v{c.GenG2.Copy()})
 	r = common.G1v{e.PP.PP.G1s[0]}.InnerProd(common.G2v{e.PP.PP.G2s[len(e.PP.PP.G2s)-1]}).Exp(Υ.C.Mul(t0.Plus(t1)))
