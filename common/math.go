@@ -336,3 +336,20 @@ func feFrom256Bits(bytes []byte) *fr.Element {
 
 	return &z
 }
+
+func IsPowerOfTwo(n uint16) bool {
+	if n == 1 {
+		return false
+	}
+
+	for {
+		lsb := n & 1
+		n = n >> 1
+		if n == 0 && lsb == 1 {
+			return true
+		}
+		if lsb == 1 {
+			return false
+		}
+	}
+}

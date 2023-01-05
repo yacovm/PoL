@@ -32,7 +32,9 @@ func (pp *PP) setupDigest() {
 	h.Write(pp.U.Bytes())
 	for i := 0; i < len(pp.G); i++ {
 		h.Write(pp.G[i].Bytes())
-		h.Write(pp.H[i].Bytes())
+		if len(pp.H) > 0 {
+			h.Write(pp.H[i].Bytes())
+		}
 	}
 	pp.Digest = h.Sum(nil)
 }

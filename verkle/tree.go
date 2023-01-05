@@ -32,7 +32,7 @@ type Vertex struct {
 func NewVerkleTree(fanOut uint16) *Tree {
 	var id2Path func(string) []uint16
 
-	if isPowerOfTwo(fanOut) {
+	if common.IsPowerOfTwo(fanOut) {
 		id2Path = sparse.HexId2PathForFanout(fanOut)
 	} else {
 		id2Path = decimalId2Path
@@ -234,21 +234,4 @@ func decimalId2Path(s string) []uint16 {
 	}
 
 	return res
-}
-
-func isPowerOfTwo(n uint16) bool {
-	if n == 1 {
-		return false
-	}
-
-	for {
-		lsb := n & 1
-		n = n >> 1
-		if n == 0 && lsb == 1 {
-			return true
-		}
-		if lsb == 1 {
-			return false
-		}
-	}
 }
