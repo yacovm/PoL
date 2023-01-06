@@ -2,6 +2,7 @@ package bp
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"math/bits"
 	"pol/common"
 
@@ -12,6 +13,22 @@ type RangeProofPublicParams struct {
 	G, H, F    *math.G1
 	Gs, Hs, Fs common.G1v
 	digest     []byte
+}
+
+func NewRangeProofPublicParams(n int) *RangeProofPublicParams {
+	m := 256
+	rppp := &RangeProofPublicParams{
+		G:  common.RandGenVec(1, "range proof G")[0],
+		H:  common.RandGenVec(1, "range proof H")[0],
+		F:  common.RandGenVec(1, "range proof F")[0],
+		Fs: common.RandGenVec(n*(m+1), "range proof Fs"),
+		Hs: common.RandGenVec(n*(m+1), "range proof Hs"),
+		Gs: common.RandGenVec(n, "range proof Gs"),
+	}
+
+	rppp.Digest()
+
+	return rppp
 }
 
 func (rppp *RangeProofPublicParams) Digest() []byte {
@@ -42,6 +59,78 @@ type RangeProof struct {
 	τ, ρ         *math.Zr
 }
 
+func VerifyRange(pp *RangeProofPublicParams, rp *RangeProof, V *math.G1) error {
+	n := len(pp.Gs)
+
+	x := rangeProofRO1(pp, V, rp.W)
+
+	U := pp.F.Mul(rp.γ)
+	U.Add(V)
+	U.Add(rp.W.Mul(x))
+
+	ppRdx := &PP{
+		G: pp.Gs,
+		U: common.RandGenVec(1, "U range proof")[0],
+	}
+	ppRdx.RecomputeDigest()
+
+	xs, u, err := IterativeVerify(ppRdx, U, rp.Δ, rp.u)
+	if err != nil {
+		return fmt.Errorf("iterated reduction proof invalid: %v", err)
+	}
+	xs = xs.Reverse()
+
+	f := make(common.Vec, n)
+	for i := uint16(0); i < uint16(n); i++ {
+		iBits := bitDecomposition(i, uint16(n)-1)
+		f[i] = xs.PowBitVec(iBits).Product()
+	}
+
+	m := 256
+	d := computeD(n, m, f, x)
+
+	y0Digest := []byte{0}
+	y1Digest := []byte{1}
+	y0Digest = append(y0Digest, pp.Digest()...)
+	y1Digest = append(y1Digest, pp.Digest()...)
+
+	y0, y1 := common.FieldElementFromBytes(randomOracle(rp.Q, rp.R, y0Digest)), common.FieldElementFromBytes(randomOracle(rp.Q, rp.R, y1Digest))
+	y0v, y1v := common.PowerSeries(n*m-1, y0), expand(common.IntToZr(1), n*m-1).Mul(y1)
+	z := computeZ(pp, rp.C1, rp.C2, rp.Q, rp.R)
+
+	y0Inverse := invertZr(y0)
+	Fprime := pp.Fs.MulV(common.PowerSeries(len(pp.Fs), y0Inverse))
+
+	ipaPP := NewPublicParams(len(pp.Fs))
+	ipaPP.G = pp.Hs
+	ipaPP.H = pp.Fs
+	ipaPP.RecomputeDigest()
+
+	rp.Π.C = rp.c
+	rp.Π.P = computeP(pp, rp.ρ, rp.Q, rp.R, z, y1v, n, m, Fprime, d, y1)
+	if err := rp.Π.Verify(ipaPP); err != nil {
+		return fmt.Errorf("inner product proof invalid: %v", err)
+	}
+
+	β2 := expand(common.IntToZr(1), n*m).InnerProd(y0v)
+	β3 := expand(common.IntToZr(1), n*m+n).InnerProd(d)
+
+	c0 := common.NegZr(β3.Mul(y1.Mul(y1).Mul(y1))).Plus(y1.Mul(y1).Mul(u.Plus(common.NegZr(β2))))
+
+	left := rp.C1.Mul(z)
+	left.Add(rp.C2.Mul(z.Mul(z)))
+	left.Add(pp.G.Mul(c0))
+
+	right := pp.G.Mul(rp.c)
+	right.Add(pp.H.Mul(rp.τ))
+
+	if !left.Equals(right) {
+		return fmt.Errorf("invalid range proof")
+	}
+
+	return nil
+}
+
 func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr) *RangeProof {
 	n := len(pp.Gs)
 
@@ -52,9 +141,7 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 
 	x := rangeProofRO1(pp, V, W)
 
-	γ := r
-	γ.Plus(x.Mul(rPrime))
-	γ = common.NegZr(γ)
+	γ := common.NegZr(r.Plus(x.Mul(rPrime)))
 
 	U := pp.F.Mul(γ)
 	U.Add(V)
@@ -62,6 +149,7 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 
 	ppRdx := &PP{
 		G: pp.Gs,
+		U: common.RandGenVec(1, "U range proof")[0],
 	}
 	ppRdx.RecomputeDigest()
 
@@ -76,18 +164,10 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 	}
 
 	m := 256
+	d := computeD(n, m, f, x)
 
 	vBits := v.BitsBigEndian(256)
 	vBits = append(vBits, w.BitsBigEndian(256)...)
-
-	var d common.Vec
-	for i := 0; i < n; i++ {
-		for j := 0; j < m; j++ {
-			d = append(d, common.Pow2(j).Mul(f[i]))
-		}
-	}
-
-	d = append(d, f.Mul(x)...)
 
 	wCaret := expand(common.IntToZr(1), n*m).Sub(common.IntsToZr(vBits[:n*m]))
 
@@ -110,6 +190,7 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 
 	y0, y1 := common.FieldElementFromBytes(randomOracle(Q, R, y0Digest)), common.FieldElementFromBytes(randomOracle(Q, R, y1Digest))
 	y0v, y1v := common.PowerSeries(n*m-1, y0), expand(common.IntToZr(1), n*m-1).Mul(y1)
+
 	zeros := expand(common.IntToZr(0), n)
 	aPrime := common.IntsToZr(vBits).Sub(y1v.Concat(zeros))
 	bPrime := d.Mul(y1.Mul(y1)).Add(y0v.Concat(zeros).Mul(y1)).Add(wCaret.HadamardProd(y0v).Concat(zeros))
@@ -119,11 +200,9 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 	C1, C2 := pp.G.Mul(c1), pp.G.Mul(c2)
 	C1.Add(pp.H.Mul(τ1))
 	C2.Add(pp.H.Mul(τ2))
-	var C1C2Digest []byte
-	C1C2Digest = append(C1C2Digest, pp.Digest()...)
-	C1C2Digest = append(C1C2Digest, C1.Bytes()...)
-	C1C2Digest = append(C1C2Digest, C2.Bytes()...)
-	z := common.FieldElementFromBytes(randomOracle(Q, R, C1C2Digest))
+
+	z := computeZ(pp, C1, C2, Q, R)
+
 	ρ := common.NegZr(ν.Plus(η.Mul(z)))
 	τ := τ1.Mul(z).Plus(τ2.Mul(z.Mul(z)))
 
@@ -132,15 +211,14 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 
 	a, b := aPrime.Add(s.Mul(z)), bPrime.Add(y0v.HadamardProd(t).Concat(zeros).Mul(z))
 
-	P := pp.F.Mul(ρ)
-	P.Add(Q)
-	P.Add(R.Mul(z))
-	minusOnes := expand(common.IntToZr(-1), len(y1v))
-	P.Add(pp.Hs[:n*m].MulV(y1v.HadamardProd(minusOnes)).Sum())
-	P.Add(Fprime.MulV(d.Mul(y1.Mul(y1))).Sum())
-	P.Add(pp.Fs[:n*m].MulV(y1v).Sum())
+	computeP(pp, ρ, Q, R, z, y1v, n, m, Fprime, d, y1)
+
 	c := a.InnerProd(b)
 	ipaPP := NewPublicParams(len(a))
+	ipaPP.G = pp.Hs
+	ipaPP.H = pp.Fs
+	ipaPP.RecomputeDigest()
+
 	ipa := NewInnerProdArgument(ipaPP, a, b)
 	ipp := ipa.Prove()
 
@@ -158,6 +236,39 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 		W:  W,
 		Π:  ipp,
 	}
+}
+
+func computeP(pp *RangeProofPublicParams, ρ *math.Zr, Q *math.G1, R *math.G1, z *math.Zr, y1v common.Vec, n int, m int, Fprime common.G1v, d common.Vec, y1 *math.Zr) *math.G1 {
+	P := pp.F.Mul(ρ)
+	P.Add(Q)
+	P.Add(R.Mul(z))
+	minusOnes := expand(common.IntToZr(-1), len(y1v))
+	P.Add(pp.Hs[:n*m].MulV(y1v.HadamardProd(minusOnes)).Sum())
+	P.Add(Fprime.MulV(d.Mul(y1.Mul(y1))).Sum())
+	P.Add(pp.Fs[:n*m].MulV(y1v).Sum())
+
+	return P
+}
+
+func computeZ(pp *RangeProofPublicParams, C1 *math.G1, C2 *math.G1, Q *math.G1, R *math.G1) *math.Zr {
+	var C1C2Digest []byte
+	C1C2Digest = append(C1C2Digest, pp.Digest()...)
+	C1C2Digest = append(C1C2Digest, C1.Bytes()...)
+	C1C2Digest = append(C1C2Digest, C2.Bytes()...)
+	z := common.FieldElementFromBytes(randomOracle(Q, R, C1C2Digest))
+	return z
+}
+
+func computeD(n int, m int, f common.Vec, x *math.Zr) common.Vec {
+	var d common.Vec
+	for i := 0; i < n; i++ {
+		for j := 0; j < m; j++ {
+			d = append(d, common.Pow2(j).Mul(f[i]))
+		}
+	}
+
+	d = append(d, f.Mul(x)...)
+	return d
 }
 
 func expand(x *math.Zr, n int) common.Vec {
