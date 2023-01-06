@@ -8,7 +8,7 @@ import (
 	math "github.com/IBM/mathlib"
 )
 
-func IterativeVerify(pp *PP, prevV *math.G1, Δ [][3]*math.G1, vFinal *math.Zr) ([]*math.Zr, *math.Zr, error) {
+func IterativeVerify(pp *PP, prevV *math.G1, Δ [][3]*math.G1, vFinal *math.Zr) (common.Vec, *math.Zr, error) {
 	n := len(pp.G)
 	if !common.IsPowerOfTwo(uint16(n)) {
 		panic(fmt.Sprintf("G Public Parameter should be a group vector of length that is power of two but its length is %d", n))
@@ -24,7 +24,7 @@ func IterativeVerify(pp *PP, prevV *math.G1, Δ [][3]*math.G1, vFinal *math.Zr) 
 
 	for n > 0 {
 		A, B, V := Δ[0][0], Δ[0][1], Δ[0][2]
-		x := common.FieldElementFromBytes(appendVToChallenge(randomOracle(A, B, pp), prevV))
+		x := common.FieldElementFromBytes(appendVToChallenge(randomOracle(A, B, pp.Digest), prevV))
 
 		Ax := A.Mul(x)
 		Bx := B.Mul(invertZr(x))
@@ -54,7 +54,7 @@ func IterativeVerify(pp *PP, prevV *math.G1, Δ [][3]*math.G1, vFinal *math.Zr) 
 
 }
 
-func IterativeReduce(pp *PP, v common.Vec, V *math.G1) ([][3]*math.G1, []*math.Zr, *math.Zr) {
+func IterativeReduce(pp *PP, v common.Vec, V *math.G1) ([][3]*math.G1, common.Vec, *math.Zr) {
 	n := len(pp.G)
 	if !common.IsPowerOfTwo(uint16(n)) {
 		panic(fmt.Sprintf("G Public Parameter should be a group vector of length that is power of two but its length is %d", n))
@@ -71,7 +71,7 @@ func IterativeReduce(pp *PP, v common.Vec, V *math.G1) ([][3]*math.G1, []*math.Z
 		vL, vR := v[:n], v[n:]
 		A := GL.MulV(vR).Sum()
 		B := GR.MulV(vL).Sum()
-		x := common.FieldElementFromBytes(appendVToChallenge(randomOracle(A, B, pp), V))
+		x := common.FieldElementFromBytes(appendVToChallenge(randomOracle(A, B, pp.Digest), V))
 		G = GL.Add(GR.Mul(invertZr(x)))
 		v = vL.Add(vR.Mul(x))
 		V = G.MulV(v).Sum()

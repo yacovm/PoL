@@ -208,7 +208,7 @@ type nextParams struct {
 func computeNextParams(L *math.G1, R *math.G1, pp *PP, g common.G1v, h common.G1v, P *math.G1) nextParams {
 	n := len(g) / 2
 
-	digest := randomOracle(L, R, pp)
+	digest := randomOracle(L, R, pp.Digest)
 	x := common.FieldElementFromBytes(digest)
 	xInverse := x.Copy()
 	xInverse.InvModP(common.GroupOrder)
@@ -235,11 +235,11 @@ func computeNextParams(L *math.G1, R *math.G1, pp *PP, g common.G1v, h common.G1
 	}
 }
 
-func randomOracle(L *math.G1, R *math.G1, pp *PP) []byte {
+func randomOracle(L *math.G1, R *math.G1, x []byte) []byte {
 	h := sha256.New()
 	h.Write(L.Bytes())
 	h.Write(R.Bytes())
-	h.Write(pp.Digest)
+	h.Write(x)
 	digest := h.Sum(nil)
 	return digest
 }
