@@ -9,7 +9,8 @@ import (
 func TestRangeProof(t *testing.T) {
 	pp := NewRangeProofPublicParams(8)
 
-	v := common.RandVec(8)
+	v := common.Vec{common.IntToZr(100), common.IntToZr(100), common.IntToZr(100), common.IntToZr(100),
+		common.IntToZr(100), common.IntToZr(100), common.IntToZr(100), common.IntToZr(100)}
 	r := common.RandVec(1)[0]
 
 	V := pp.F.Mul(r)

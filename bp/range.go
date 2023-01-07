@@ -16,7 +16,7 @@ type RangeProofPublicParams struct {
 }
 
 func NewRangeProofPublicParams(n int) *RangeProofPublicParams {
-	m := 256
+	m := 63
 	rppp := &RangeProofPublicParams{
 		G:  common.RandGenVec(1, "range proof G")[0],
 		H:  common.RandGenVec(1, "range proof H")[0],
@@ -86,7 +86,7 @@ func VerifyRange(pp *RangeProofPublicParams, rp *RangeProof, V *math.G1) error {
 		f[i] = xs.PowBitVec(iBits).Product()
 	}
 
-	m := 256
+	m := 63
 	d := computeD(n, m, f, x)
 
 	y0Digest := []byte{0}
@@ -95,7 +95,7 @@ func VerifyRange(pp *RangeProofPublicParams, rp *RangeProof, V *math.G1) error {
 	y1Digest = append(y1Digest, pp.Digest()...)
 
 	y0, y1 := common.FieldElementFromBytes(randomOracle(rp.Q, rp.R, y0Digest)), common.FieldElementFromBytes(randomOracle(rp.Q, rp.R, y1Digest))
-	y0v, y1v := common.PowerSeries(n*m-1, y0), expand(common.IntToZr(1), n*m-1).Mul(y1)
+	y0v, y1v := common.PowerSeries(n*m, y0), expand(common.IntToZr(1), n*m).Mul(y1)
 	z := computeZ(pp, rp.C1, rp.C2, rp.Q, rp.R)
 
 	y0Inverse := invertZr(y0)
@@ -163,18 +163,18 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 		f[i] = xs.PowBitVec(iBits).Product()
 	}
 
-	m := 256
+	m := 63
 	d := computeD(n, m, f, x)
 
-	vBits := v.BitsBigEndian(256)
-	vBits = append(vBits, w.BitsBigEndian(256)...)
+	vBits := common.IntsToZr(v.BitsBigEndian(m))
+	vBits = append(vBits, w...)
 
-	wCaret := expand(common.IntToZr(1), n*m).Sub(common.IntsToZr(vBits[:n*m]))
+	wCaret := expand(common.IntToZr(1), n*m).Sub(vBits[:n*m])
 
 	ν, η := common.RandVec(1)[0], common.RandVec(1)[0]
 
 	Q := pp.F.Mul(ν)
-	Q.Add(pp.Hs.MulV(common.IntsToZr(vBits)).Sum())
+	Q.Add(pp.Hs.MulV(vBits).Sum())
 	Q.Add(pp.Fs[:n*m].MulV(wCaret).Sum())
 
 	s, t := common.RandVec(n*m+n), common.RandVec(n*m)
@@ -189,10 +189,10 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 	y1Digest = append(y1Digest, pp.Digest()...)
 
 	y0, y1 := common.FieldElementFromBytes(randomOracle(Q, R, y0Digest)), common.FieldElementFromBytes(randomOracle(Q, R, y1Digest))
-	y0v, y1v := common.PowerSeries(n*m-1, y0), expand(common.IntToZr(1), n*m-1).Mul(y1)
+	y0v, y1v := common.PowerSeries(n*m, y0), expand(common.IntToZr(1), n*m).Mul(y1)
 
 	zeros := expand(common.IntToZr(0), n)
-	aPrime := common.IntsToZr(vBits).Sub(y1v.Concat(zeros))
+	aPrime := vBits.Sub(y1v.Concat(zeros))
 	bPrime := d.Mul(y1.Mul(y1)).Add(y0v.Concat(zeros).Mul(y1)).Add(wCaret.HadamardProd(y0v).Concat(zeros))
 	c1 := aPrime[:n*m].InnerProd(y0v.HadamardProd(t))
 	c2 := s[:n*m].InnerProd(y0v.HadamardProd(t))
@@ -206,12 +206,12 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 	ρ := common.NegZr(ν.Plus(η.Mul(z)))
 	τ := τ1.Mul(z).Plus(τ2.Mul(z.Mul(z)))
 
-	y0Inverse := invertZr(y0)
-	Fprime := pp.Fs.MulV(common.PowerSeries(len(pp.Fs), y0Inverse))
+	//y0Inverse := invertZr(y0)
+	//Fprime := pp.Fs.MulV(common.PowerSeries(len(pp.Fs), y0Inverse))
 
 	a, b := aPrime.Add(s.Mul(z)), bPrime.Add(y0v.HadamardProd(t).Concat(zeros).Mul(z))
 
-	computeP(pp, ρ, Q, R, z, y1v, n, m, Fprime, d, y1)
+	//P := computeP(pp, ρ, Q, R, z, y1v, n, m, Fprime, d, y1)
 
 	c := a.InnerProd(b)
 	ipaPP := NewPublicParams(len(a))

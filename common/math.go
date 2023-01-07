@@ -73,7 +73,7 @@ func BitsBigEndian(n *math.Zr, bitLen int) []uint8 {
 func Bits(n *math.Zr, bitLen int) []uint8 {
 	N := big.NewInt(0).SetBytes(n.Bytes())
 	var res []uint8
-	for N.BitLen() > 0 {
+	for N.Sign() != 0 {
 		lsb := N.Bit(0)
 		res = append(res, uint8(lsb&1))
 		N = N.Rsh(N, 1)
@@ -169,6 +169,10 @@ func (v Vec) Product() *math.Zr {
 }
 
 func (v Vec) Add(v2 Vec) Vec {
+	if len(v) != len(v2) {
+		panic(fmt.Sprintf("|v|=%d but |v2|=%d", len(v), len(v2)))
+	}
+
 	res := make(Vec, len(v))
 	for i := 0; i < len(v); i++ {
 		res[i] = v[i].Plus(v2[i])
@@ -177,6 +181,10 @@ func (v Vec) Add(v2 Vec) Vec {
 }
 
 func (v Vec) Sub(v2 Vec) Vec {
+	if len(v) != len(v2) {
+		panic(fmt.Sprintf("|v|=%d but |v2|=%d", len(v), len(v2)))
+	}
+
 	res := make(Vec, len(v))
 	for i := 0; i < len(v); i++ {
 		res[i] = v[i].Plus(NegZr(v2[i]))
@@ -306,6 +314,10 @@ func (g1v G1v) Mul(x *math.Zr) G1v {
 }
 
 func (g1v G1v) MulV(v Vec) G1v {
+	if len(g1v) != len(v) {
+		panic(fmt.Sprintf("|G vector|=%d but |scalar vector|=%d", len(g1v), len(v)))
+	}
+
 	res := make(G1v, len(g1v))
 	for i := 0; i < len(res); i++ {
 		if v[i].Equals(c.NewZrFromInt(0)) {
@@ -486,6 +498,9 @@ func IsPowerOfTwo(n uint16) bool {
 			return true
 		}
 		if lsb == 1 {
+			return false
+		}
+		if n == 0 {
 			return false
 		}
 	}
