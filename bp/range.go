@@ -206,12 +206,14 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 	ρ := common.NegZr(ν.Plus(η.Mul(z)))
 	τ := τ1.Mul(z).Plus(τ2.Mul(z.Mul(z)))
 
-	//y0Inverse := invertZr(y0)
-	//Fprime := pp.Fs.MulV(common.PowerSeries(len(pp.Fs), y0Inverse))
+	y0Inverse := invertZr(y0)
+	Fprime := pp.Fs.MulV(common.PowerSeries(len(pp.Fs), y0Inverse))
 
 	a, b := aPrime.Add(s.Mul(z)), bPrime.Add(y0v.HadamardProd(t).Concat(zeros).Mul(z))
 
-	//P := computeP(pp, ρ, Q, R, z, y1v, n, m, Fprime, d, y1)
+	P := computeP(pp, ρ, Q, R, z, y1v, n, m, Fprime, d, y1)
+
+	_ = P
 
 	c := a.InnerProd(b)
 	ipaPP := NewPublicParams(len(a))
@@ -221,6 +223,11 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 
 	ipa := NewInnerProdArgument(ipaPP, a, b)
 	ipp := ipa.Prove()
+	ipp.P = P
+
+	if err := ipp.Verify(ipaPP); err != nil {
+		panic(err)
+	}
 
 	return &RangeProof{
 		ρ:  ρ,

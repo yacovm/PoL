@@ -176,6 +176,7 @@ func (v Vec) Add(v2 Vec) Vec {
 	res := make(Vec, len(v))
 	for i := 0; i < len(v); i++ {
 		res[i] = v[i].Plus(v2[i])
+		res[i].Mod(GroupOrder)
 	}
 	return res
 }
@@ -188,6 +189,7 @@ func (v Vec) Sub(v2 Vec) Vec {
 	res := make(Vec, len(v))
 	for i := 0; i < len(v); i++ {
 		res[i] = v[i].Plus(NegZr(v2[i]))
+		res[i].Mod(GroupOrder)
 	}
 	return res
 }
@@ -498,9 +500,6 @@ func IsPowerOfTwo(n uint16) bool {
 			return true
 		}
 		if lsb == 1 {
-			return false
-		}
-		if n == 0 {
 			return false
 		}
 	}
