@@ -18,18 +18,18 @@ var (
 )
 
 type Tree struct {
-	pp    *pp.PP
+	PP    *pp.PP
 	depth int
-	tree  *sparse.Tree
+	Tree  *sparse.Tree
 }
 
 type Vertex struct {
 	blindingFactor *math.Zr
 	values         map[uint16]*math.Zr
-	digests        map[uint16]*math.Zr
+	Digests        map[uint16]*math.Zr
 	sum            *math.Zr
 	V              *math.G1 // Commitment to values of descendants
-	W              *math.G1 // Commitment to digests of descendants
+	W              *math.G1 // Commitment to Digests of descendants
 }
 
 func (v *Vertex) Digest() *math.Zr {
@@ -51,43 +51,49 @@ func NewVerkleTree(fanOut uint16) *Tree {
 		id2Path = decimalId2Path
 	}
 	t := &Tree{
-		pp: pp.NewPublicParams(int(fanOut + 2)),
-		tree: &sparse.Tree{
+		PP: pp.NewPublicParams(int(fanOut + 2)),
+		Tree: &sparse.Tree{
 			FanOut:  int(fanOut),
 			ID2Path: id2Path,
 		},
 	}
 
-	t.tree.UpdateInnerVertex = t.updateInnerVertex
+	t.Tree.UpdateInnerVertex = t.updateInnerVertex
 	return t
 
 }
 
-func (t *Tree) Get(id string) (int, bool) {
-	n, ok := t.tree.Get(id)
+func (t *Tree) Get(id string) (int64, []*Vertex, bool) {
+	n, path, ok := t.Tree.Get(id)
 	if !ok {
-		return 0, false
+		return 0, nil, false
 	}
-	return int(n.(int64)), true
+
+	verticesAlongThePath := make([]*Vertex, len(path))
+	for i := 0; i < len(verticesAlongThePath); i++ {
+		verticesAlongThePath[i] = path[i].(*sparse.Vertex).Data.(*Vertex)
+	}
+
+	return n.(int64), verticesAlongThePath, true
 }
 
-func (t *Tree) Put(id string, data int) {
+func (t *Tree) Put(id string, data int64) {
 	t.validateInput(id, data) // TODO: remove this later for performance improvements
-	t.tree.Put(id, int64(data))
+	t.Tree.Put(id, data)
 }
 
 func (t *Tree) validateInput(id string, data interface{}) {
-	if _, isInt := data.(int); !isInt {
-		panic(fmt.Sprintf("Verkle tree leaf entries can only be of type int"))
+	if _, isInt := data.(int64); !isInt {
+		panic(fmt.Sprintf("Verkle Tree leaf entries can only be of type int"))
 	}
 
-	path := t.tree.ID2Path(id)
+	path := t.Tree.ID2Path(id)
 	if t.depth == 0 {
 		t.depth = len(path)
 	}
 
 	if t.depth != len(path) {
-		panic(fmt.Sprintf("Verkle tree of depth %d cannot insert leaves at depth %d", t.depth, len(path)))
+		panic(fmt.Sprintf("Verkle Tree of depth %d cannot insert leaves at depth %d", t.depth, len(path)))
 	}
 }
 
@@ -105,7 +111,7 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 			blindingFactor: c.NewRandomZr(rand.Reader),
 			sum:            c.NewZrFromInt(0),
 			values:         make(map[uint16]*math.Zr),
-			digests:        make(map[uint16]*math.Zr),
+			Digests:        make(map[uint16]*math.Zr),
 		}
 
 		// value vector
@@ -124,7 +130,7 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 			v.sum = v.sum.Plus(val)
 			v.values[uint16(i)] = val
 			digest := desc.(*Vertex).Digest()
-			v.digests[uint16(i)] = digest
+			v.Digests[uint16(i)] = digest
 			m = append(m, val)
 			d = append(d, digest)
 		}
@@ -136,14 +142,14 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 		m = append(m, v.blindingFactor)
 
 		// Commit to values
-		v.V = pp.Commit(t.pp, m)
+		v.V = pp.Commit(t.PP, m)
 
 		// Artificially append two empty values
 		d = append(d, c.NewZrFromInt(0))
 		d = append(d, c.NewZrFromInt(0))
 
-		// Commit to digests
-		v.W = pp.Commit(t.pp, d)
+		// Commit to Digests
+		v.W = pp.Commit(t.PP, d)
 
 		return v
 	}
@@ -159,13 +165,13 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 	v.sum = updateSum(v.sum, oldVal, newVal)
 
 	// Update index with new value and digest
-	m := make(common.Vec, t.pp.N)
-	d := make(common.Vec, t.pp.N)
+	m := make(common.Vec, t.PP.N)
+	d := make(common.Vec, t.PP.N)
 
 	for i := 0; i < len(m); i++ {
 		if val, exists := v.values[uint16(i)]; exists {
 			m[uint16(i)] = val
-			d[uint16(i)] = v.digests[uint16(i)]
+			d[uint16(i)] = v.Digests[uint16(i)]
 		} else {
 			m[uint16(i)] = c.NewZrFromInt(0)
 			d[uint16(i)] = c.NewZrFromInt(0)
@@ -175,15 +181,15 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 	// Artificially append the sum
 	m = append(m, v.sum)
 
-	pp.Update(t.pp, v.V, m, newVal, index)
+	pp.Update(t.PP, v.V, m, newVal, index)
 	v.values[uint16(index)] = newVal
 
 	// Update last entry with sum
-	pp.Update(t.pp, v.V, m, v.sum, len(v.values))
+	pp.Update(t.PP, v.V, m, v.sum, len(v.values))
 
 	// Update the new digest
-	pp.Update(t.pp, v.W, d, newDigest, index)
-	v.digests[uint16(index)] = newDigest
+	pp.Update(t.PP, v.W, d, newDigest, index)
+	v.Digests[uint16(index)] = newDigest
 
 	return v
 }
@@ -195,7 +201,7 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 			blindingFactor: c.NewRandomZr(rand.Reader),
 			sum:            c.NewZrFromInt(0),
 			values:         make(map[uint16]*math.Zr),
-			digests:        make(map[uint16]*math.Zr),
+			Digests:        make(map[uint16]*math.Zr),
 		}
 
 		m := make(common.Vec, 0, len(descendants)+2)
@@ -219,7 +225,7 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 		// Artificially append the blinding factor
 		m = append(m, v.blindingFactor)
 
-		v.V = pp.Commit(t.pp, m)
+		v.V = pp.Commit(t.PP, m)
 
 		return v
 	}
@@ -235,7 +241,7 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 	v.sum = updateSum(v.sum, oldVal, newVal)
 
 	// Update index with new value
-	m := make(common.Vec, t.pp.N)
+	m := make(common.Vec, t.PP.N)
 	for i := 0; i < len(m); i++ {
 		if val, exists := v.values[uint16(i)]; exists {
 			m[uint16(i)] = val
@@ -248,11 +254,11 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 	m = append(m, v.sum)
 
 	// Update index with new value
-	pp.Update(t.pp, v.V, m, newVal, index)
+	pp.Update(t.PP, v.V, m, newVal, index)
 	v.values[uint16(index)] = newVal
 
 	// Update last entry with sum
-	pp.Update(t.pp, v.V, m, v.sum, len(v.values))
+	pp.Update(t.PP, v.V, m, v.sum, len(v.values))
 
 	return v
 }

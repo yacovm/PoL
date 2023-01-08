@@ -15,13 +15,16 @@ func TestVerkleTree(t *testing.T) {
 	tree.Put(hash("a"), 5)
 	tree.Put(hash("b"), 6)
 
-	five, ok := tree.Get(hash("a"))
-	assert.Equal(t, 5, five)
+	five, path, ok := tree.Get(hash("a"))
+	assert.Equal(t, int64(5), five)
 	assert.True(t, ok)
+	assert.Len(t, path, 26)
 
-	six, ok := tree.Get(hash("b"))
-	assert.Equal(t, 6, six)
+	six, path, ok := tree.Get(hash("b"))
+	assert.Equal(t, int64(6), six)
 	assert.True(t, ok)
+	assert.Len(t, path, 26)
+
 }
 
 func hash(s string) string {

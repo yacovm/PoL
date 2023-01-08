@@ -13,21 +13,24 @@ type Tree struct {
 	root              *Vertex
 }
 
-func (t *Tree) Get(id string) (interface{}, bool) {
+func (t *Tree) Get(id string) (interface{}, []interface{}, bool) {
 	path := t.ID2Path(id)
 	if t.root == nil {
-		return nil, false
+		return nil, nil, false
 	}
+
+	var verticesAlongThePath []interface{}
 
 	v := t.root
 	var exists bool
 	for _, p := range path {
+		verticesAlongThePath = append(verticesAlongThePath, v)
 		v, exists = v.Descendants[p]
 		if !exists {
-			return nil, false
+			return nil, nil, false
 		}
 	}
-	return v.Data, true
+	return v.Data, verticesAlongThePath, true
 }
 
 func (t *Tree) Put(id string, data interface{}) {
