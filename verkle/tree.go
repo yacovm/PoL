@@ -2,6 +2,7 @@ package verkle
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"pol/common"
 	"pol/pp"
@@ -25,8 +26,20 @@ type Tree struct {
 type Vertex struct {
 	blindingFactor *math.Zr
 	values         map[uint16]*math.Zr
+	digests        map[uint16]*math.Zr
 	sum            *math.Zr
-	commitment     *math.G1
+	V              *math.G1 // Commitment to values of descendants
+	W              *math.G1 // Commitment to digests of descendants
+}
+
+func (v *Vertex) Digest() *math.Zr {
+	h := sha256.New()
+	h.Write(v.V.Bytes())
+	if v.W != nil {
+		h.Write(v.W.Bytes())
+	}
+	hash := h.Sum(nil)
+	return common.FieldElementFromBytes(hash)
 }
 
 func NewVerkleTree(fanOut uint16) *Tree {
@@ -92,19 +105,28 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 			blindingFactor: c.NewRandomZr(rand.Reader),
 			sum:            c.NewZrFromInt(0),
 			values:         make(map[uint16]*math.Zr),
+			digests:        make(map[uint16]*math.Zr),
 		}
 
+		// value vector
 		m := make(common.Vec, 0, len(descendants)+2)
+
+		// digest vector
+		d := make(common.Vec, 0, len(descendants)+2)
 
 		for i, desc := range descendants {
 			if desc == nil {
 				m = append(m, c.NewZrFromInt(0))
+				d = append(d, c.NewZrFromInt(0))
 				continue
 			}
 			val := desc.(*Vertex).sum
 			v.sum = v.sum.Plus(val)
 			v.values[uint16(i)] = val
+			digest := desc.(*Vertex).Digest()
+			v.digests[uint16(i)] = digest
 			m = append(m, val)
+			d = append(d, digest)
 		}
 
 		// Artificially append the sum
@@ -113,7 +135,15 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 		// Artificially append the blinding factor
 		m = append(m, v.blindingFactor)
 
-		v.commitment = pp.Commit(t.pp, m)
+		// Commit to values
+		v.V = pp.Commit(t.pp, m)
+
+		// Artificially append two empty values
+		d = append(d, c.NewZrFromInt(0))
+		d = append(d, c.NewZrFromInt(0))
+
+		// Commit to digests
+		v.W = pp.Commit(t.pp, d)
 
 		return v
 	}
@@ -124,27 +154,36 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 		oldVal = c.NewZrFromInt(0)
 	}
 	newVal := descendants[index].(*Vertex).sum
+	newDigest := descendants[index].(*Vertex).Digest()
 
 	v.sum = updateSum(v.sum, oldVal, newVal)
 
-	// Update index with new value
+	// Update index with new value and digest
 	m := make(common.Vec, t.pp.N)
+	d := make(common.Vec, t.pp.N)
+
 	for i := 0; i < len(m); i++ {
 		if val, exists := v.values[uint16(i)]; exists {
 			m[uint16(i)] = val
+			d[uint16(i)] = v.digests[uint16(i)]
 		} else {
 			m[uint16(i)] = c.NewZrFromInt(0)
+			d[uint16(i)] = c.NewZrFromInt(0)
 		}
 	}
 
 	// Artificially append the sum
 	m = append(m, v.sum)
 
-	pp.Update(t.pp, v.commitment, m, newVal, index)
+	pp.Update(t.pp, v.V, m, newVal, index)
 	v.values[uint16(index)] = newVal
 
 	// Update last entry with sum
-	pp.Update(t.pp, v.commitment, m, v.sum, len(v.values))
+	pp.Update(t.pp, v.V, m, v.sum, len(v.values))
+
+	// Update the new digest
+	pp.Update(t.pp, v.W, d, newDigest, index)
+	v.digests[uint16(index)] = newDigest
 
 	return v
 }
@@ -156,6 +195,7 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 			blindingFactor: c.NewRandomZr(rand.Reader),
 			sum:            c.NewZrFromInt(0),
 			values:         make(map[uint16]*math.Zr),
+			digests:        make(map[uint16]*math.Zr),
 		}
 
 		m := make(common.Vec, 0, len(descendants)+2)
@@ -179,7 +219,7 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 		// Artificially append the blinding factor
 		m = append(m, v.blindingFactor)
 
-		v.commitment = pp.Commit(t.pp, m)
+		v.V = pp.Commit(t.pp, m)
 
 		return v
 	}
@@ -208,11 +248,11 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 	m = append(m, v.sum)
 
 	// Update index with new value
-	pp.Update(t.pp, v.commitment, m, newVal, index)
+	pp.Update(t.pp, v.V, m, newVal, index)
 	v.values[uint16(index)] = newVal
 
 	// Update last entry with sum
-	pp.Update(t.pp, v.commitment, m, v.sum, len(v.values))
+	pp.Update(t.pp, v.V, m, v.sum, len(v.values))
 
 	return v
 }
