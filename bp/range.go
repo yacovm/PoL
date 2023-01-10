@@ -116,7 +116,7 @@ func VerifyRange(pp *RangeProofPublicParams, rp *RangeProof, V *math.G1) error {
 	β2 := expand(common.IntToZr(1), n*m).InnerProd(y0v)
 	β3 := expand(common.IntToZr(1), n*m).InnerProd(d[:n*m])
 
-	c0 := common.NegZr(β3.Mul(y1.Mul(y1).Mul(y1))).Plus(y1.Mul(y1).Mul(u.Plus(common.NegZr(β2)))).Plus(β1.Mul(y1))
+	c0 := common.NegZr(β3.Mul(y1.Mul(y1).Mul(y1))).Plus(y1.Mul(y1).Mul(u.Plus(β2))).Plus(β1.Mul(y1))
 
 	left := rp.C1.Mul(z)
 	left.Add(rp.C2.Mul(z.Mul(z)))
@@ -193,7 +193,7 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 	y0v, y1v := common.PowerSeries(n*m, y0), expand(common.IntToZr(1), n*m).Mul(y1)
 
 	zeros := expand(common.IntToZr(0), n)
-	aPrime := vBits.Sub(y1v.Concat(zeros))
+	aPrime := vBits.Add(y1v.Concat(zeros))
 	bPrime := d.Mul(y1.Mul(y1)).Add(y0v.Concat(zeros).Mul(y1)).Add(wCaret.HadamardProd(y0v).Concat(zeros))
 	c1 := aPrime[:n*m].InnerProd(y0v.HadamardProd(t))
 	c1 = c1.Plus(s.InnerProd(bPrime))
@@ -213,10 +213,6 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 
 	a, b := aPrime.Add(s.Mul(z)), bPrime.Add(y0v.HadamardProd(t).Concat(zeros).Mul(z))
 
-	P := computeP(pp, ρ, Q, R, z, y1v, n, m, Fprime, d, y1)
-
-	_ = P
-
 	c := a.InnerProd(b)
 	ipaPP := NewPublicParams(len(a))
 	ipaPP.G = pp.Hs
@@ -225,13 +221,7 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 
 	ipa := NewInnerProdArgument(ipaPP, a, b)
 
-	if !ipa.P.Equals(P) {
-		panic("computed P is not equal to expected P")
-	}
-
 	ipp := ipa.Prove()
-
-	ipp.P = P
 
 	if err := ipp.Verify(ipaPP); err != nil {
 		panic(err)
@@ -257,8 +247,7 @@ func computeP(pp *RangeProofPublicParams, ρ *math.Zr, Q *math.G1, R *math.G1, z
 	P := pp.F.Mul(ρ)
 	P.Add(Q)
 	P.Add(R.Mul(z))
-	minusOnes := expand(common.IntToZr(-1), len(y1v))
-	P.Add(pp.Hs[:n*m].MulV(y1v.HadamardProd(minusOnes)).Sum())
+	P.Add(pp.Hs[:n*m].MulV(y1v).Sum())
 	P.Add(Fprime.MulV(d.Mul(y1.Mul(y1))).Sum())
 	P.Add(pp.Fs[:n*m].MulV(y1v).Sum())
 
