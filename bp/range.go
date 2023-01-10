@@ -103,7 +103,7 @@ func VerifyRange(pp *RangeProofPublicParams, rp *RangeProof, V *math.G1) error {
 
 	ipaPP := NewPublicParams(len(pp.Fs))
 	ipaPP.G = pp.Hs
-	ipaPP.H = pp.Fs
+	ipaPP.H = Fprime
 	ipaPP.RecomputeDigest()
 
 	rp.Π.C = rp.c
@@ -220,11 +220,17 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 	c := a.InnerProd(b)
 	ipaPP := NewPublicParams(len(a))
 	ipaPP.G = pp.Hs
-	ipaPP.H = pp.Fs
+	ipaPP.H = Fprime
 	ipaPP.RecomputeDigest()
 
 	ipa := NewInnerProdArgument(ipaPP, a, b)
+
+	if !ipa.P.Equals(P) {
+		panic("computed P is not equal to expected P")
+	}
+
 	ipp := ipa.Prove()
+
 	ipp.P = P
 
 	if err := ipp.Verify(ipaPP); err != nil {
