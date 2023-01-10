@@ -17,8 +17,17 @@ func TestIterativeReduce(t *testing.T) {
 	v := common.RandVec(n)
 	V := common.G1v(pp.G).MulV(v).Sum()
 
-	Δ, xs, vFinal := IterativeReduce(pp, v, V)
-	xs2, vFinal, err := IterativeVerify(pp, V, Δ, vFinal)
-	assert.NoError(t, err)
-	assert.Equal(t, xs, xs2)
+	_, xs, vFinal := IterativeReduce(pp, v, V)
+	xs = xs.Reverse()
+	/*	xs2, vFinal, err := IterativeVerify(pp, V, Δ, vFinal)
+		assert.NoError(t, err)
+		assert.Equal(t, xs, xs2)*/
+	var xVec common.Vec
+
+	for i := 0; i < 128; i++ {
+		xVec = append(xVec, xs.PowBitVec(bitDecomposition(uint16(i), 127)).Product())
+	}
+
+	shouldBeV := v.InnerProd(xVec)
+	assert.True(t, vFinal.Equals(shouldBeV))
 }

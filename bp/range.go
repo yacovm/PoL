@@ -112,10 +112,11 @@ func VerifyRange(pp *RangeProofPublicParams, rp *RangeProof, V *math.G1) error {
 		return fmt.Errorf("inner product proof invalid: %v", err)
 	}
 
+	β1 := expand(common.IntToZr(1), n*m).InnerProd(y0v)
 	β2 := expand(common.IntToZr(1), n*m).InnerProd(y0v)
-	β3 := expand(common.IntToZr(1), n*m+n).InnerProd(d)
+	β3 := expand(common.IntToZr(1), n*m).InnerProd(d[:n*m])
 
-	c0 := common.NegZr(β3.Mul(y1.Mul(y1).Mul(y1))).Plus(y1.Mul(y1).Mul(u.Plus(common.NegZr(β2))))
+	c0 := common.NegZr(β3.Mul(y1.Mul(y1).Mul(y1))).Plus(y1.Mul(y1).Mul(u.Plus(common.NegZr(β2)))).Plus(β1.Mul(y1))
 
 	left := rp.C1.Mul(z)
 	left.Add(rp.C2.Mul(z.Mul(z)))
@@ -166,7 +167,7 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 	m := 63
 	d := computeD(n, m, f, x)
 
-	vBits := common.IntsToZr(v.BitsBigEndian(m))
+	vBits := common.IntsToZr(v.Bits(m))
 	vBits = append(vBits, w...)
 
 	wCaret := expand(common.IntToZr(1), n*m).Sub(vBits[:n*m])
@@ -195,6 +196,7 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 	aPrime := vBits.Sub(y1v.Concat(zeros))
 	bPrime := d.Mul(y1.Mul(y1)).Add(y0v.Concat(zeros).Mul(y1)).Add(wCaret.HadamardProd(y0v).Concat(zeros))
 	c1 := aPrime[:n*m].InnerProd(y0v.HadamardProd(t))
+	c1 = c1.Plus(s.InnerProd(bPrime))
 	c2 := s[:n*m].InnerProd(y0v.HadamardProd(t))
 	τ1, τ2 := common.RandVec(1)[0], common.RandVec(1)[0]
 	C1, C2 := pp.G.Mul(c1), pp.G.Mul(c2)
@@ -291,7 +293,7 @@ func bitDecomposition(n, max uint16) []uint8 {
 	result := make([]uint8, bitNum)
 	var i int
 	for n > 0 {
-		result[bitNum-1-i] = uint8(n & 1)
+		result[i] = uint8(n & 1)
 		n = n >> 1
 		i++
 	}

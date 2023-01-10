@@ -127,14 +127,6 @@ func (v Vec) Bits(bitLen int) []uint8 {
 	return bits
 }
 
-func (v Vec) BitsBigEndian(bitLen int) []uint8 {
-	var bits []uint8
-	for i := 0; i < len(v); i++ {
-		bits = append(bits, BitsBigEndian(v[i], bitLen)...)
-	}
-	return bits
-}
-
 func (v Vec) Reverse() Vec {
 	n := len(v)
 	v2 := make(Vec, n)
