@@ -88,7 +88,7 @@ func TestSparseBinarySummationTree(t *testing.T) {
 		{"", 14},
 	} {
 		t.Run(tst.string, func(t *testing.T) {
-			val, ok := tree.Get(tst.string)
+			val, _, ok := tree.Get(tst.string)
 			assert.True(t, ok)
 			assert.Equal(t, tst.int, val.(int))
 		})
@@ -152,7 +152,7 @@ func TestSparsePowerTwoSummationTree(t *testing.T) {
 	} {
 		tst := tst
 		t.Run(tst.string, func(t *testing.T) {
-			val, _ := tree.Get(tst.string)
+			val, _, _ := tree.Get(tst.string)
 			assert.Equalf(t, tst.int, val, "%d is empty", tst.int)
 		})
 	}
