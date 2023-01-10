@@ -116,7 +116,7 @@ func VerifyRange(pp *RangeProofPublicParams, rp *RangeProof, V *math.G1) error {
 	β2 := expand(common.IntToZr(1), n*m).InnerProd(y0v)
 	β3 := expand(common.IntToZr(1), n*m).InnerProd(d[:n*m])
 
-	c0 := common.NegZr(β3.Mul(y1.Mul(y1).Mul(y1))).Plus(y1.Mul(y1).Mul(u.Plus(β2))).Plus(β1.Mul(y1))
+	c0 := β3.Mul(y1.Mul(y1).Mul(y1)).Plus(y1.Mul(y1).Mul(u.Plus(β2))).Plus(β1.Mul(y1))
 
 	left := rp.C1.Mul(z)
 	left.Add(rp.C2.Mul(z.Mul(z)))
