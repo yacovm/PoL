@@ -17,9 +17,11 @@ func TestPol(t *testing.T) {
 
 	hundred, proof, ok := ls.ProveLiability(id)
 
+	vRoot, wRoot := ls.Root()
+
 	assert.Equal(t, int64(100), hundred)
 	assert.True(t, ok)
-	err := proof.Verify(ls.tree.PP, id, sparse.HexId2PathForFanout(fanout))
+	err := proof.Verify(ls.tree.PP, id, vRoot, wRoot, sparse.HexId2PathForFanout(fanout))
 	assert.NoError(t, err)
 }
 

@@ -10,18 +10,18 @@ type Tree struct {
 	ID2Path           func(string) []uint16
 	UpdateInnerVertex func(node interface{}, descendants []interface{}, descendantsLeaves bool, indexChanged int) interface{}
 	FanOut            int
-	root              *Vertex
+	Root              *Vertex
 }
 
 func (t *Tree) Get(id string) (interface{}, []interface{}, bool) {
 	path := t.ID2Path(id)
-	if t.root == nil {
+	if t.Root == nil {
 		return nil, nil, false
 	}
 
 	var verticesAlongThePath []interface{}
 
-	v := t.root
+	v := t.Root
 	var exists bool
 	for _, p := range path {
 		verticesAlongThePath = append(verticesAlongThePath, v)
@@ -36,13 +36,13 @@ func (t *Tree) Get(id string) (interface{}, []interface{}, bool) {
 func (t *Tree) Put(id string, data interface{}) {
 	path := t.ID2Path(id)
 
-	if t.root == nil {
-		t.root = &Vertex{
+	if t.Root == nil {
+		t.Root = &Vertex{
 			Descendants: make(map[uint16]*Vertex),
 		}
 	}
 
-	v := t.root
+	v := t.Root
 
 	for _, p := range path {
 		if len(v.Descendants) == 0 {

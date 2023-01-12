@@ -162,3 +162,15 @@ func VerifyAggregation(pp *PP, indices []int, commitments common.G1v, π *math.G
 
 	return fmt.Errorf("invalid aggregation")
 }
+
+func RO(pp *PP, cs []*math.G1, i int) *math.Zr {
+	h := sha256.New()
+	h.Write(pp.Digest)
+	h.Write([]byte{byte(i)})
+	for j := 0; j < len(cs); j++ {
+		h.Write(cs[j].Bytes())
+	}
+	digest := h.Sum(nil)
+	result := common.FieldElementFromBytes(digest)
+	return result
+}

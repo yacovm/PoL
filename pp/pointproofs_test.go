@@ -2,7 +2,6 @@ package pp
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"pol/common"
 	"testing"
 
@@ -86,16 +85,4 @@ func TestAggregation(t *testing.T) {
 		err = VerifyAggregation(pp, []int{i, i}, commitments, π, Σ, RO)
 		assert.NoError(t, err)
 	}
-}
-
-func RO(pp *PP, cs []*math.G1, i int) *math.Zr {
-	h := sha256.New()
-	h.Write(pp.Digest)
-	h.Write([]byte{byte(i)})
-	for j := 0; j < len(cs); j++ {
-		h.Write(cs[j].Bytes())
-	}
-	digest := h.Sum(nil)
-	result := common.FieldElementFromBytes(digest)
-	return result
 }
