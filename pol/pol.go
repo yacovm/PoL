@@ -4,36 +4,63 @@ import (
 	"crypto/sha256"
 	"fmt"
 	math "github.com/IBM/mathlib"
+	"pol/bp"
 	"pol/common"
 	"pol/pp"
+	"pol/sum"
 	"pol/verkle"
 )
 
 type LiabilitySet struct {
 	tree *verkle.Tree
+	pp   *PublicParams
+}
+
+type PublicParams struct {
+	PPPP  *pp.PP
+	SAPP  *sum.PP
+	IPAPP *bp.PP
 }
 
 func NewLiabilitySet(fanout uint16) *LiabilitySet {
 	tree := verkle.NewVerkleTree(fanout)
 
+	n := int(fanout + 1)
+
+	pp := &PublicParams{
+		PPPP:  tree.PP,
+		SAPP:  sum.NewPublicParams(n),
+		IPAPP: &bp.PP{},
+	}
+
+	pp.IPAPP.G = pp.SAPP.Gs[:n]
+	pp.IPAPP.H = pp.SAPP.H
+	pp.IPAPP.U = pp.SAPP.U
+
+	pp.SAPP.F = pp.PPPP.G1s[n]
+	pp.SAPP.Gs = pp.PPPP.G1s[:n-1]
+	pp.SAPP.Gs = append(pp.SAPP.Gs, pp.PPPP.G1s[n+1])
+
 	return &LiabilitySet{
+		pp:   pp,
 		tree: tree,
 	}
 }
 
 type LiabilityProof struct {
-	PointProofΣ *math.Zr
-	PointProofπ *math.G1
-	V           []*math.G1
-	W           []*math.G1
-	Digests     common.Vec
+	PointProofΣ      *math.Zr
+	PointProofπ      *math.G1
+	SumArgumentProof *sum.Proof
+	V                common.G1v
+	W                []*math.G1
+	Digests          common.Vec
 }
 
-func (lp LiabilityProof) Verify(pppp *pp.PP, id string, V, W *math.G1, id2path func(string) []uint16) error {
+func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *math.G1, id2path func(string) []uint16) error {
 	path := id2path(id)
 	expectedDigestNum := len(path)
 	if len(lp.W) != expectedDigestNum-1 || len(lp.Digests) != expectedDigestNum {
-		return fmt.Errorf("expected digest proofs of size %d", expectedDigestNum)
+		return fmt.Errorf("expected digest proofs of size %d but got %d", expectedDigestNum, len(lp.W))
 	}
 
 	// Check that the root is what is advertised.
@@ -65,8 +92,12 @@ func (lp LiabilityProof) Verify(pppp *pp.PP, id string, V, W *math.G1, id2path f
 		}
 	}
 
-	if err := pp.VerifyAggregation(pppp, uint16VecToIntVec(path)[:len(path)-1], lp.W, lp.PointProofπ, lp.PointProofΣ, pp.RO); err != nil {
+	if err := pp.VerifyAggregation(publicParams.PPPP, uint16VecToIntVec(path)[:len(path)-1], lp.W, lp.PointProofπ, lp.PointProofΣ, pp.RO); err != nil {
 		return fmt.Errorf("hash chain aggregation proof invalid: %v", err)
+	}
+
+	if err := lp.SumArgumentProof.VerifyAggregated(publicParams.SAPP, lp.V); err != nil {
+		return fmt.Errorf("failed verifying sum argument: %v", err)
 	}
 
 	return nil
@@ -120,6 +151,7 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 	path := ls.tree.Tree.ID2Path(id)
 	liability, verticesAlongThePath, ok := ls.tree.Get(id)
 
+	var vertices verkle.Vertices
 	var proof LiabilityProof
 	var digestProofs common.G1v
 
@@ -147,6 +179,7 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 		}
 		proof.V = append(proof.V, v.V)
 		proof.Digests = append(proof.Digests, digest)
+		vertices = append(vertices, v)
 	}
 
 	var tPP common.Vec
@@ -156,6 +189,7 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 
 	proof.PointProofΣ = proof.Digests[:len(tPP)].InnerProd(tPP)
 	proof.PointProofπ = pp.Aggregate(ls.tree.PP, proof.W, digestProofs, pp.RO)
+	proof.SumArgumentProof = vertices.SumArgument(ls.pp.SAPP)
 
 	return liability, proof, true
 }

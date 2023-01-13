@@ -2,11 +2,9 @@ package sum
 
 import (
 	"crypto/sha256"
+	math "github.com/IBM/mathlib"
 	"pol/bp"
 	"pol/common"
-	"pol/pp"
-
-	math "github.com/IBM/mathlib"
 )
 
 var (
@@ -22,7 +20,6 @@ type PP struct {
 	H      common.G1v
 	b      common.Vec
 	B      *math.G1
-	PP     *pp.PP
 }
 
 func NewPublicParams(n int) *PP {

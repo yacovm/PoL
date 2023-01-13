@@ -7,6 +7,7 @@ import (
 	"pol/common"
 	"pol/pp"
 	"pol/sparse"
+	"pol/sum"
 	"strconv"
 
 	math "github.com/IBM/mathlib"
@@ -24,12 +25,54 @@ type Tree struct {
 }
 
 type Vertex struct {
-	blindingFactor *math.Zr
+	BlindingFactor *math.Zr
 	values         map[uint16]*math.Zr
 	Digests        map[uint16]*math.Zr
 	sum            *math.Zr
 	V              *math.G1 // Commitment to values of descendants
 	W              *math.G1 // Commitment to Digests of descendants
+}
+
+type Vertices []*Vertex
+
+func (vs Vertices) SumArgument(pp *sum.PP) *sum.Proof {
+	commitments := make(common.G1v, len(vs))
+	vectors := make([]common.Vec, len(vs))
+	randomness := make(common.Vec, len(vs))
+	for i, v := range vs {
+		commitments[i] = v.V
+		randomness[i] = v.BlindingFactor
+		vectors[i] = make(common.Vec, len(pp.H))
+		for j := uint16(0); j < uint16(len(pp.H)); j++ {
+			if n, exists := v.values[j]; exists {
+				vectors[i][j] = n
+			} else {
+				vectors[i][j] = common.IntToZr(0)
+			}
+			// Put the sum in the last index
+			if j == uint16(len(pp.H)-1) {
+				vectors[i][j] = v.sum
+			}
+		}
+	}
+	return sum.NewAggregatedArgument(pp, commitments, vectors, randomness)
+}
+
+func (v *Vertex) Values(n int) common.Vec {
+	res := make(common.Vec, n)
+	for j := uint16(0); j < uint16(n); j++ {
+		if n, exists := v.values[j]; exists {
+			res[j] = n
+		} else {
+			res[j] = common.IntToZr(0)
+		}
+		// Put the sum in the last index
+		if j == uint16(n-1) {
+			res[j] = v.sum
+		}
+	}
+
+	return res
 }
 
 func (v *Vertex) Digest() *math.Zr {
@@ -45,7 +88,7 @@ func (v *Vertex) Digest() *math.Zr {
 func NewVerkleTree(fanOut uint16) *Tree {
 	var id2Path func(string) []uint16
 
-	if common.IsPowerOfTwo(fanOut) {
+	if common.IsPowerOfTwo(fanOut + 1) {
 		id2Path = sparse.HexId2PathForFanout(fanOut)
 	} else {
 		id2Path = decimalId2Path
@@ -108,7 +151,7 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 	var v *Vertex
 	if node == nil {
 		v = &Vertex{
-			blindingFactor: c.NewRandomZr(rand.Reader),
+			BlindingFactor: c.NewRandomZr(rand.Reader),
 			sum:            c.NewZrFromInt(0),
 			values:         make(map[uint16]*math.Zr),
 			Digests:        make(map[uint16]*math.Zr),
@@ -139,7 +182,7 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 		m = append(m, v.sum)
 
 		// Artificially append the blinding factor
-		m = append(m, v.blindingFactor)
+		m = append(m, v.BlindingFactor)
 
 		// Commit to values
 		v.V = pp.Commit(t.PP, m)
@@ -198,7 +241,7 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 	var v *Vertex
 	if node == nil {
 		v = &Vertex{
-			blindingFactor: c.NewRandomZr(rand.Reader),
+			BlindingFactor: c.NewRandomZr(rand.Reader),
 			sum:            c.NewZrFromInt(0),
 			values:         make(map[uint16]*math.Zr),
 			Digests:        make(map[uint16]*math.Zr),
@@ -223,7 +266,7 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 		m = append(m, v.sum)
 
 		// Artificially append the blinding factor
-		m = append(m, v.blindingFactor)
+		m = append(m, v.BlindingFactor)
 
 		v.V = pp.Commit(t.PP, m)
 
