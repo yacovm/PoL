@@ -21,28 +21,33 @@ type LiabilitySet struct {
 }
 
 type PublicParams struct {
-	PPPP  *pp.PP
-	SAPP  *sum.PP
-	RPPP  *bp.RangeProofPublicParams
-	POEPP *poe.PP
+	PPPP   *pp.PP
+	SAPP   *sum.PP
+	RPPP   *bp.RangeProofPublicParams
+	POEPP  *poe.PP
+	Fanout int
 }
 
 func NewLiabilitySet(fanout uint16) *LiabilitySet {
 	tree := verkle.NewVerkleTree(fanout)
 
-	poePP := poe.NewPublicParams(int(fanout+2), 1)
+	m := len(tree.Tree.ID2Path(hash("bla bla"))) - 1
+	for !common.IsPowerOfTwo(uint16(m)) {
+		m = m + 1
+	}
+
+	poePP := poe.NewPublicParams(int(fanout+2), m)
 	tree.PP = poePP.PP
 
 	n := int(fanout + 1)
 
 	pp := &PublicParams{
-		PPPP:  poePP.PP,
-		SAPP:  sum.NewPublicParams(n),
-		RPPP:  bp.NewRangeProofPublicParams(n),
-		POEPP: poePP,
+		Fanout: int(fanout),
+		PPPP:   poePP.PP,
+		SAPP:   sum.NewPublicParams(n),
+		RPPP:   bp.NewRangeProofPublicParams(n),
+		POEPP:  poePP,
 	}
-
-	//pp.POEPP.PP = pp.PPPP
 
 	pp.SAPP.F = pp.PPPP.G1s[n]
 	pp.SAPP.Gs = make(common.G1v, n)
@@ -65,6 +70,7 @@ type LiabilityProof struct {
 	W                []*math.G1
 	Digests          common.Vec
 	RangeProofs      []*bp.RangeProof
+	EqualityProof    *poe.AggregatedProof
 }
 
 func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *math.G1, id2path func(string) []uint16) error {
@@ -87,7 +93,23 @@ func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *mat
 
 	var detectedRangeProofErr atomic.Value
 
+	equalities := &poe.Equalities{
+		PP: publicParams.POEPP,
+		W:  make(common.G1v, len(path)-1),
+		V:  make(common.G1v, len(path)-1),
+		I:  make([]int, len(path)-1),
+		J:  make([]int, len(path)-1),
+		RO: poe.RO,
+	}
+
 	for i := 0; i < len(path); i++ {
+
+		if i < len(path)-1 {
+			equalities.I[i] = int(path[i])
+			equalities.J[i] = publicParams.Fanout
+			equalities.V[i] = lp.V[i]
+			equalities.W[i] = lp.V[i+1]
+		}
 
 		go func(rp *bp.RangeProof, V *math.G1) {
 			defer rangeProofsVerification.Done()
@@ -122,6 +144,23 @@ func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *mat
 
 	if err := lp.SumArgumentProof.VerifyAggregated(publicParams.SAPP, lp.V); err != nil {
 		return fmt.Errorf("failed verifying sum argument: %v", err)
+	}
+
+	// Pad the equality proof until it's a power of two
+	for !common.IsPowerOfTwo(uint16(len(equalities.I))) {
+		zeroVec := make(common.Vec, publicParams.Fanout+2)
+		zeroVec.Zero()
+
+		zeroCommit := pp.Commit(publicParams.PPPP, zeroVec)
+
+		equalities.I = append(equalities.I, 0)
+		equalities.J = append(equalities.J, 0)
+		equalities.V = append(equalities.V, zeroCommit)
+		equalities.W = append(equalities.W, zeroCommit)
+	}
+
+	if err := equalities.Verify(lp.EqualityProof); err != nil {
+		return fmt.Errorf("failed verifying equality proof")
 	}
 
 	rangeProofsVerification.Wait()
@@ -195,6 +234,17 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 
 	proof.RangeProofs = make([]*bp.RangeProof, len(path))
 
+	vEQ := make([]common.Vec, len(path)-1)
+	wEQ := make([]common.Vec, len(path)-1)
+	equalities := &poe.Equalities{
+		PP: ls.pp.POEPP,
+		W:  make(common.G1v, len(path)-1),
+		V:  make(common.G1v, len(path)-1),
+		I:  make([]int, len(path)-1),
+		J:  make([]int, len(path)-1),
+		RO: poe.RO,
+	}
+
 	for i := 0; i < len(path); i++ {
 		var digests []*math.Zr
 		v := verticesAlongThePath[i]
@@ -209,33 +259,47 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 
 		// The last entry in the path points is the liabilities and not to other layers in the tree
 		if i < len(path)-1 {
-			eq := poe.Equality{
-				RO: poe.RO, // TODO: Actually use global PP for RO
-				PP: &poe.PP{
-					F:  common.HashToG1([]byte{1, 2, 2}),
-					PP: ls.pp.PPPP,
-				},
-				I: int(path[i]),
-				J: ls.tree.Tree.FanOut,
-				V: v.V,
-				W: verticesAlongThePath[i+1].V,
-			}
+			equalities.I[i] = int(path[i])
+			equalities.J[i] = ls.tree.Tree.FanOut
+			equalities.V[i] = v.V
+			equalities.W[i] = verticesAlongThePath[i+1].V
 
-			eq.PP.SetupDigest()
-
-			vEQ := v.Values(ls.tree.Tree.FanOut + 1)
-			wEq := verticesAlongThePath[i+1].Values(ls.tree.Tree.FanOut + 1)
-
-			vEQ = append(vEQ, v.BlindingFactor)
-			wEq = append(wEq, verticesAlongThePath[i+1].BlindingFactor)
-
-			eqProof := eq.Prove(vEQ, wEq)
-			if err := eq.Verify(eqProof); err != nil {
-				panic(err)
-			}
+			vEQ[i] = make(common.Vec, ls.tree.Tree.FanOut+2)
+			wEQ[i] = make(common.Vec, ls.tree.Tree.FanOut+2)
+			copy(vEQ[i], v.Values(ls.tree.Tree.FanOut+1))
+			copy(wEQ[i], verticesAlongThePath[i+1].Values(ls.tree.Tree.FanOut+1))
+			vEQ[i][ls.tree.Tree.FanOut+1] = v.BlindingFactor
+			wEQ[i][ls.tree.Tree.FanOut+1] = verticesAlongThePath[i+1].BlindingFactor
 		}
+		/*
+			if i < len(path)-1 {
+				eq := poe.Equality{
+					RO: poe.RO, // TODO: Actually use global PP for RO
+					PP: &poe.PP{
+						F:  common.HashToG1([]byte{1, 2, 2}),
+						PP: ls.pp.PPPP,
+					},
+					I: int(path[i]),
+					J: ls.tree.Tree.FanOut,
+					V: v.V,
+					W: verticesAlongThePath[i+1].V,
+				}
 
-		go func(i int, pp *bp.RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr) {
+				eq.PP.SetupDigest()
+
+				vEQ := v.Values(ls.tree.Tree.FanOut + 1)
+				wEq := verticesAlongThePath[i+1].Values(ls.tree.Tree.FanOut + 1)
+
+				vEQ = append(vEQ, v.BlindingFactor)
+				wEq = append(wEq, verticesAlongThePath[i+1].BlindingFactor)
+
+				eqProof := eq.Prove(vEQ, wEq)
+				if err := eq.Verify(eqProof); err != nil {
+					panic(err)
+				}
+			}
+
+		*/go func(i int, pp *bp.RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr) {
 			defer rangeProofProduction.Done()
 			rp := bp.ProveRange(pp, V, v, r)
 			lock.Lock()
@@ -262,6 +326,22 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 	proof.PointProofΣ = proof.Digests[:len(tPP)].InnerProd(tPP)
 	proof.PointProofπ = pp.Aggregate(ls.tree.PP, proof.W, digestProofs, pp.RO)
 	proof.SumArgumentProof = vertices.SumArgument(ls.pp.SAPP)
+
+	// We need to pad the equality tree up to a power of two
+	for !common.IsPowerOfTwo(uint16(len(vEQ))) {
+		zeroVec := make(common.Vec, ls.tree.Tree.FanOut+2)
+		zeroVec.Zero()
+		vEQ = append(vEQ, zeroVec)
+		wEQ = append(wEQ, zeroVec)
+
+		zeroCommit := pp.Commit(ls.pp.PPPP, zeroVec)
+
+		equalities.I = append(equalities.I, 0)
+		equalities.J = append(equalities.J, 0)
+		equalities.V = append(equalities.V, zeroCommit)
+		equalities.W = append(equalities.W, zeroCommit)
+	}
+	proof.EqualityProof = equalities.Prove(vEQ, wEQ)
 
 	rangeProofProduction.Wait()
 

@@ -112,6 +112,13 @@ func RandVec(n int) Vec {
 	return v
 }
 
+func (v Vec) Zero() {
+	zero := IntToZr(0)
+	for i := 0; i < len(v); i++ {
+		v[i] = zero
+	}
+}
+
 func (v Vec) Concat(v2 Vec) Vec {
 	res := make(Vec, len(v)+len(v2))
 	copy(res, v)
