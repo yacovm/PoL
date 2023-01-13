@@ -2,10 +2,12 @@ package pol
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	math "github.com/IBM/mathlib"
 	"pol/bp"
 	"pol/common"
+	"pol/poe"
 	"pol/pp"
 	"pol/sum"
 	"pol/verkle"
@@ -21,29 +23,30 @@ type LiabilitySet struct {
 type PublicParams struct {
 	PPPP  *pp.PP
 	SAPP  *sum.PP
-	IPAPP *bp.PP
 	RPPP  *bp.RangeProofPublicParams
+	POEPP *poe.PP
 }
 
 func NewLiabilitySet(fanout uint16) *LiabilitySet {
 	tree := verkle.NewVerkleTree(fanout)
 
+	poePP := poe.NewPublicParams(int(fanout+2), 1)
+	tree.PP = poePP.PP
+
 	n := int(fanout + 1)
 
 	pp := &PublicParams{
-		PPPP:  tree.PP,
+		PPPP:  poePP.PP,
 		SAPP:  sum.NewPublicParams(n),
-		IPAPP: &bp.PP{},
 		RPPP:  bp.NewRangeProofPublicParams(n),
+		POEPP: poePP,
 	}
 
-	pp.IPAPP.G = pp.SAPP.Gs[:n]
-	pp.IPAPP.H = pp.SAPP.H
-	pp.IPAPP.U = pp.SAPP.U
+	//pp.POEPP.PP = pp.PPPP
 
 	pp.SAPP.F = pp.PPPP.G1s[n]
-	pp.SAPP.Gs = pp.PPPP.G1s[:n-1]
-	pp.SAPP.Gs = append(pp.SAPP.Gs, pp.PPPP.G1s[n+1])
+	pp.SAPP.Gs = make(common.G1v, n)
+	copy(pp.SAPP.Gs, pp.PPPP.G1s)
 
 	pp.RPPP.Gs = pp.SAPP.Gs
 	pp.RPPP.F = pp.SAPP.F
@@ -204,6 +207,34 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 			}
 		}
 
+		// The last entry in the path points is the liabilities and not to other layers in the tree
+		if i < len(path)-1 {
+			eq := poe.Equality{
+				RO: poe.RO, // TODO: Actually use global PP for RO
+				PP: &poe.PP{
+					F:  common.HashToG1([]byte{1, 2, 2}),
+					PP: ls.pp.PPPP,
+				},
+				I: int(path[i]),
+				J: ls.tree.Tree.FanOut,
+				V: v.V,
+				W: verticesAlongThePath[i+1].V,
+			}
+
+			eq.PP.SetupDigest()
+
+			vEQ := v.Values(ls.tree.Tree.FanOut + 1)
+			wEq := verticesAlongThePath[i+1].Values(ls.tree.Tree.FanOut + 1)
+
+			vEQ = append(vEQ, v.BlindingFactor)
+			wEq = append(wEq, verticesAlongThePath[i+1].BlindingFactor)
+
+			eqProof := eq.Prove(vEQ, wEq)
+			if err := eq.Verify(eqProof); err != nil {
+				panic(err)
+			}
+		}
+
 		go func(i int, pp *bp.RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr) {
 			defer rangeProofProduction.Done()
 			rp := bp.ProveRange(pp, V, v, r)
@@ -243,4 +274,10 @@ func uint16VecToIntVec(in []uint16) []int {
 		res[i] = int(n)
 	}
 	return res
+}
+
+func hash(s string) string {
+	h := sha256.New()
+	h.Write([]byte(s))
+	return hex.EncodeToString(h.Sum(nil))
 }

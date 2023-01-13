@@ -10,7 +10,7 @@ import (
 )
 
 func TestVerkleTree(t *testing.T) {
-	tree := NewVerkleTree(1024)
+	tree := NewVerkleTree(1023)
 
 	tree.Put(hash("a"), 5)
 	tree.Put(hash("b"), 6)

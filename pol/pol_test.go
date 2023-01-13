@@ -1,8 +1,6 @@
 package pol
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"pol/sparse"
@@ -11,7 +9,7 @@ import (
 )
 
 func TestPol(t *testing.T) {
-	fanout := uint16(31)
+	fanout := uint16(7)
 	ls := NewLiabilitySet(fanout)
 
 	id := hash("bla bla")
@@ -31,10 +29,4 @@ func TestPol(t *testing.T) {
 	err := proof.Verify(ls.pp, id, vRoot, wRoot, sparse.HexId2PathForFanout(fanout))
 	fmt.Println("Verification time:", time.Since(t1))
 	assert.NoError(t, err)
-}
-
-func hash(s string) string {
-	h := sha256.New()
-	h.Write([]byte(s))
-	return hex.EncodeToString(h.Sum(nil))
 }

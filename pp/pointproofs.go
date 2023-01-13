@@ -55,12 +55,12 @@ func NewPublicParams(N int) *PP {
 
 	pp.Gt = c.GenGt.Exp(α.PowMod(c.NewZrFromInt(int64(N + 1))))
 
-	pp.setupDigest()
+	pp.SetupDigest()
 
 	return pp
 }
 
-func (pp *PP) setupDigest() {
+func (pp *PP) SetupDigest() {
 	h := sha256.New()
 	for i := 0; i < len(pp.G1s); i++ {
 		h.Write(pp.G1s[i].Bytes())

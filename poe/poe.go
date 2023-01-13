@@ -32,12 +32,12 @@ func NewPublicParams(n, m int) *PP {
 		H:  common.RandGenVec(m, "POE H"),
 		F:  common.RandGenVec(1, "POE F")[0],
 	}
-	pp.setupDigest()
+	pp.SetupDigest()
 
 	return pp
 }
 
-func (pp *PP) setupDigest() {
+func (pp *PP) SetupDigest() {
 	h := sha256.New()
 	h.Write(pp.G.Bytes())
 	h.Write(pp.H.Bytes())
@@ -283,11 +283,10 @@ func compressParameters(gs common.G1v, integers []int, ppDigest []byte) []byte {
 }
 
 type Proof struct {
-	IPP *bp.InnerProductProof
-	C   *math.Zr
-	V   *math.G1
-	W   *math.G1
-	Ω   *math.G1
+	C *math.Zr
+	V *math.G1
+	W *math.G1
+	Ω *math.G1
 }
 
 func (e *Equality) Verify(Υ *Proof) error {
