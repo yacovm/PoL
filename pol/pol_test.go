@@ -11,11 +11,13 @@ import (
 )
 
 func TestPol(t *testing.T) {
-	fanout := uint16(1024) - 1
+	fanout := uint16(31)
 	ls := NewLiabilitySet(fanout)
 
 	id := hash("bla bla")
 	ls.Set(id, 100)
+
+	fmt.Println("Fan-Out:", fanout)
 
 	t1 := time.Now()
 	hundred, proof, ok := ls.ProveLiability(id)

@@ -9,6 +9,8 @@ import (
 	"pol/pp"
 	"pol/sum"
 	"pol/verkle"
+	"sync"
+	"sync/atomic"
 )
 
 type LiabilitySet struct {
@@ -20,6 +22,7 @@ type PublicParams struct {
 	PPPP  *pp.PP
 	SAPP  *sum.PP
 	IPAPP *bp.PP
+	RPPP  *bp.RangeProofPublicParams
 }
 
 func NewLiabilitySet(fanout uint16) *LiabilitySet {
@@ -31,6 +34,7 @@ func NewLiabilitySet(fanout uint16) *LiabilitySet {
 		PPPP:  tree.PP,
 		SAPP:  sum.NewPublicParams(n),
 		IPAPP: &bp.PP{},
+		RPPP:  bp.NewRangeProofPublicParams(n),
 	}
 
 	pp.IPAPP.G = pp.SAPP.Gs[:n]
@@ -40,6 +44,9 @@ func NewLiabilitySet(fanout uint16) *LiabilitySet {
 	pp.SAPP.F = pp.PPPP.G1s[n]
 	pp.SAPP.Gs = pp.PPPP.G1s[:n-1]
 	pp.SAPP.Gs = append(pp.SAPP.Gs, pp.PPPP.G1s[n+1])
+
+	pp.RPPP.Gs = pp.SAPP.Gs
+	pp.RPPP.F = pp.SAPP.F
 
 	return &LiabilitySet{
 		pp:   pp,
@@ -54,6 +61,7 @@ type LiabilityProof struct {
 	V                common.G1v
 	W                []*math.G1
 	Digests          common.Vec
+	RangeProofs      []*bp.RangeProof
 }
 
 func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *math.G1, id2path func(string) []uint16) error {
@@ -71,7 +79,20 @@ func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *mat
 		return fmt.Errorf("root W does not match public known W value")
 	}
 
+	var rangeProofsVerification sync.WaitGroup
+	rangeProofsVerification.Add(len(path))
+
+	var detectedRangeProofErr atomic.Value
+
 	for i := 0; i < len(path); i++ {
+
+		go func(rp *bp.RangeProof, V *math.G1) {
+			defer rangeProofsVerification.Done()
+			if err := bp.VerifyRange(publicParams.RPPP, rp, V); err != nil {
+				detectedRangeProofErr.Store(err)
+			}
+		}(lp.RangeProofs[i], lp.V[i])
+
 		if i == len(path)-1 {
 			// This is the leaf layer, so we have no W.
 			// Just check that the leaf matches with the previous digest.
@@ -98,6 +119,11 @@ func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *mat
 
 	if err := lp.SumArgumentProof.VerifyAggregated(publicParams.SAPP, lp.V); err != nil {
 		return fmt.Errorf("failed verifying sum argument: %v", err)
+	}
+
+	rangeProofsVerification.Wait()
+	if detectedRangeProofErr.Load() != nil {
+		return detectedRangeProofErr.Load().(error)
 	}
 
 	return nil
@@ -159,10 +185,17 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 		return 0, proof, false
 	}
 
+	var rangeProofProduction sync.WaitGroup
+	rangeProofProduction.Add(len(path))
+
+	var lock sync.Mutex
+
+	proof.RangeProofs = make([]*bp.RangeProof, len(path))
+
 	for i := 0; i < len(path); i++ {
 		var digests []*math.Zr
 		v := verticesAlongThePath[i]
-		for j := 0; j < ls.tree.PP.N; j++ {
+		for j := 0; j <= ls.tree.Tree.FanOut+1; j++ {
 			digest, exists := v.Digests[uint16(j)]
 			if exists {
 				digests = append(digests, digest)
@@ -170,6 +203,14 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 				digests = append(digests, common.IntToZr(0))
 			}
 		}
+
+		go func(i int, pp *bp.RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr) {
+			defer rangeProofProduction.Done()
+			rp := bp.ProveRange(pp, V, v, r)
+			lock.Lock()
+			proof.RangeProofs[i] = rp
+			lock.Unlock()
+		}(i, ls.pp.RPPP, v.V, v.Values(ls.tree.Tree.FanOut+1), v.BlindingFactor)
 
 		digest, π := pp.Open(ls.tree.PP, int(path[i]), digests)
 
@@ -190,6 +231,8 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 	proof.PointProofΣ = proof.Digests[:len(tPP)].InnerProd(tPP)
 	proof.PointProofπ = pp.Aggregate(ls.tree.PP, proof.W, digestProofs, pp.RO)
 	proof.SumArgumentProof = vertices.SumArgument(ls.pp.SAPP)
+
+	rangeProofProduction.Wait()
 
 	return liability, proof, true
 }
