@@ -146,13 +146,12 @@ func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *mat
 		return fmt.Errorf("failed verifying sum argument: %v", err)
 	}
 
+	zeroVec := make(common.Vec, publicParams.Fanout+2)
+	zeroVec.Zero()
+	zeroCommit := pp.Commit(publicParams.PPPP, zeroVec)
+
 	// Pad the equality proof until it's a power of two
 	for !common.IsPowerOfTwo(uint16(len(equalities.I))) {
-		zeroVec := make(common.Vec, publicParams.Fanout+2)
-		zeroVec.Zero()
-
-		zeroCommit := pp.Commit(publicParams.PPPP, zeroVec)
-
 		equalities.I = append(equalities.I, 0)
 		equalities.J = append(equalities.J, 0)
 		equalities.V = append(equalities.V, zeroCommit)
@@ -271,35 +270,8 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 			vEQ[i][ls.tree.Tree.FanOut+1] = v.BlindingFactor
 			wEQ[i][ls.tree.Tree.FanOut+1] = verticesAlongThePath[i+1].BlindingFactor
 		}
-		/*
-			if i < len(path)-1 {
-				eq := poe.Equality{
-					RO: poe.RO, // TODO: Actually use global PP for RO
-					PP: &poe.PP{
-						F:  common.HashToG1([]byte{1, 2, 2}),
-						PP: ls.pp.PPPP,
-					},
-					I: int(path[i]),
-					J: ls.tree.Tree.FanOut,
-					V: v.V,
-					W: verticesAlongThePath[i+1].V,
-				}
 
-				eq.PP.SetupDigest()
-
-				vEQ := v.Values(ls.tree.Tree.FanOut + 1)
-				wEq := verticesAlongThePath[i+1].Values(ls.tree.Tree.FanOut + 1)
-
-				vEQ = append(vEQ, v.BlindingFactor)
-				wEq = append(wEq, verticesAlongThePath[i+1].BlindingFactor)
-
-				eqProof := eq.Prove(vEQ, wEq)
-				if err := eq.Verify(eqProof); err != nil {
-					panic(err)
-				}
-			}
-
-		*/go func(i int, pp *bp.RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr) {
+		go func(i int, pp *bp.RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr) {
 			defer rangeProofProduction.Done()
 			rp := bp.ProveRange(pp, V, v, r)
 			lock.Lock()
@@ -327,14 +299,16 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 	proof.PointProofπ = pp.Aggregate(ls.tree.PP, proof.W, digestProofs, pp.RO)
 	proof.SumArgumentProof = vertices.SumArgument(ls.pp.SAPP)
 
+	zeroVec := make(common.Vec, ls.tree.Tree.FanOut+2)
+	zeroVec.Zero()
+
+	zeroCommit := pp.Commit(ls.pp.PPPP, zeroVec)
+
 	// We need to pad the equality tree up to a power of two
 	for !common.IsPowerOfTwo(uint16(len(vEQ))) {
-		zeroVec := make(common.Vec, ls.tree.Tree.FanOut+2)
-		zeroVec.Zero()
+
 		vEQ = append(vEQ, zeroVec)
 		wEQ = append(wEQ, zeroVec)
-
-		zeroCommit := pp.Commit(ls.pp.PPPP, zeroVec)
 
 		equalities.I = append(equalities.I, 0)
 		equalities.J = append(equalities.J, 0)
