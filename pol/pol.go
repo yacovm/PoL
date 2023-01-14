@@ -40,18 +40,24 @@ type PublicParams struct {
 }
 
 // NewLiabilitySet creates a liability set with the given fanout and tree type.
-// If the treeType passed is dense, the fan-out is ignored as the tree is dense.
-// If the treeType passed is sparse, the given fan-out is used.
 // Only a fan-out of the form 2^k - 1 for some natural k is permitted.
-func NewLiabilitySet(fanOut uint16, treeType TreeType) *LiabilitySet {
+func NewLiabilitySet(pp *PublicParams, id2Path func(string) []uint16) *LiabilitySet {
+	tree := verkle.NewVerkleTree(uint16(pp.Fanout), id2Path)
+	tree.PP = pp.PPPP
 
+	return &LiabilitySet{
+		pp:   pp,
+		tree: tree,
+	}
+}
+
+func GeneratePublicParams(fanOut uint16, treeType TreeType) (func(string) []uint16, *PublicParams) {
 	var id2Path func(string) []uint16
 	var m int
 
 	if treeType == Dense {
-		fanOut = 7
-		m = 10
-		id2Path = sparse.DigitPath
+		m = sparse.DigitPathLen(fanOut) - 1
+		id2Path = sparse.DigitPath(fanOut)
 	}
 
 	if treeType == Sparse {
@@ -59,14 +65,11 @@ func NewLiabilitySet(fanOut uint16, treeType TreeType) *LiabilitySet {
 		id2Path = sparse.HexId2PathForFanOut(fanOut)
 	}
 
-	tree := verkle.NewVerkleTree(fanOut, id2Path)
-
 	for !common.IsPowerOfTwo(uint16(m)) {
 		m = m + 1
 	}
 
 	poePP := poe.NewPublicParams(int(fanOut+2), m)
-	tree.PP = poePP.PP
 
 	n := int(fanOut + 1)
 
@@ -84,11 +87,7 @@ func NewLiabilitySet(fanOut uint16, treeType TreeType) *LiabilitySet {
 
 	pp.RPPP.Gs = pp.SAPP.Gs
 	pp.RPPP.F = pp.SAPP.F
-
-	return &LiabilitySet{
-		pp:   pp,
-		tree: tree,
-	}
+	return id2Path, pp
 }
 
 type LiabilityProof struct {

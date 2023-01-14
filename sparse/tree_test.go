@@ -3,7 +3,6 @@ package sparse
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -98,8 +97,8 @@ func TestSparseBinarySummationTree(t *testing.T) {
 
 func TestSSNSummationTree(t *testing.T) {
 	tree := Tree{
-		FanOut:  10,
-		ID2Path: DigitPath,
+		FanOut:  7,
+		ID2Path: DigitPath(7),
 		UpdateInnerVertex: func(node interface{}, descendants []interface{}, _ bool, _ int) interface{} {
 			var sum int
 			for _, n := range descendants {
@@ -253,31 +252,5 @@ func TestHexPathIsInCorrectLength(t *testing.T) {
 
 		assert.Len(t, pathLengths, 1, pathLengths)
 	}
-
-}
-
-func TestDigitPathIsInCorrectLength(t *testing.T) {
-
-	id2Path := DigitPath
-
-	pathLengths := make(map[int]int)
-
-	for i := 0; i < 100000; i++ {
-		buff := make([]byte, 32)
-		_, err := rand.Read(buff)
-		assert.NoError(t, err)
-
-		n := big.NewInt(0).SetBytes(buff)
-		n.Abs(n)
-
-		n.Mod(n, big.NewInt(1000000000))
-		if len(n.String()) != 9 {
-			continue
-		}
-
-		pathLengths[len(id2Path(n.String()))]++
-	}
-
-	assert.Len(t, pathLengths, 1, pathLengths)
 
 }

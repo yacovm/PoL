@@ -93,27 +93,49 @@ func (v *Vertex) rawData(size int) []interface{} {
 	return res
 }
 
-func DigitPath(s string) []uint16 {
-	if len(s) != 9 {
-		panic(fmt.Sprintf("%s is not a 9 digit decimal number", s))
-	}
-	num, err := strconv.ParseInt(s, 10, 32)
-	if err != nil {
-		panic(fmt.Sprintf("%s is not a valid decimal number", s))
+func DigitPath(fanout uint16) func(string) []uint16 {
+	if !common.IsPowerOfTwo(fanout + 1) {
+		panic(fmt.Sprintf("fanout %d+1 is not a power of two", fanout))
 	}
 
-	var res []uint16
+	return func(s string) []uint16 {
+		if len(s) != 9 {
+			panic(fmt.Sprintf("%s is not a 9 digit decimal number", s))
+		}
+		num, err := strconv.ParseInt(s, 10, 32)
+		if err != nil {
+			panic(fmt.Sprintf("%s is not a valid decimal number", s))
+		}
 
-	for num > 0 {
-		res = append(res, uint16(num%7))
-		num /= 7
+		var res []uint16
+
+		for num > 0 {
+			res = append(res, uint16(num%int64(fanout)))
+			num /= int64(fanout)
+		}
+
+		pathLen := DigitPathLen(fanout)
+		if len(res) != pathLen {
+			res = append(res, 0)
+		}
+
+		return res
 	}
+}
 
-	if len(res) == 10 {
-		res = append(res, 0)
+func DigitPathLen(fanout uint16) int {
+	fo := big.NewInt(0).SetInt64(int64(fanout))
+
+	space := big.NewInt(0).Exp(big.NewInt(10), big.NewInt(9), nil)
+
+	pathLen := int64(1)
+	for {
+		bigger := big.NewInt(0).Exp(fo, big.NewInt(pathLen), nil)
+		if bigger.Cmp(space) > 0 {
+			return int(pathLen)
+		}
+		pathLen++
 	}
-
-	return res
 }
 
 var (
