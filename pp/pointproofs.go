@@ -60,6 +60,10 @@ func NewPublicParams(N int) *PP {
 	return pp
 }
 
+func (pp *PP) Size() int {
+	return len(pp.G1s.Bytes()) + len(pp.G2s.Bytes()) + len(pp.Gt.Bytes())
+}
+
 func (pp *PP) SetupDigest() {
 	h := sha256.New()
 	for i := 0; i < len(pp.G1s); i++ {

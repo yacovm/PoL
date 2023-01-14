@@ -39,6 +39,10 @@ type PublicParams struct {
 	Fanout int
 }
 
+func (pp *PublicParams) Size() int {
+	return pp.RPPP.Size() + pp.POEPP.Size() + pp.SAPP.Size() - len(pp.SAPP.Gs.Bytes()) - len(pp.SAPP.F.Bytes()) - len(pp.RPPP.Gs.Bytes()) - len(pp.RPPP.F.Bytes()) - pp.PPPP.Size()
+}
+
 // NewLiabilitySet creates a liability set with the given fanout and tree type.
 // Only a fan-out of the form 2^k - 1 for some natural k is permitted.
 func NewLiabilitySet(pp *PublicParams, id2Path func(string) []uint16) *LiabilitySet {

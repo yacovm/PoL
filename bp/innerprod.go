@@ -10,8 +10,8 @@ import (
 
 type PP struct {
 	Digest []byte
-	G      []*math.G1
-	H      []*math.G1
+	G      common.G1v
+	H      common.G1v
 	U      *math.G1
 }
 
@@ -25,6 +25,10 @@ func NewPublicParams(n int) *PP {
 	pp.setupDigest()
 
 	return pp
+}
+
+func (pp *PP) Size() int {
+	return len(pp.G.Bytes()) + len(pp.H.Bytes()) + len(pp.U.Bytes())
 }
 
 func (pp *PP) setupDigest() {

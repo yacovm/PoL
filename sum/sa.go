@@ -23,6 +23,10 @@ type PP struct {
 	B      *math.G1
 }
 
+func (pp *PP) Size() int {
+	return len(pp.U.Bytes()) + len(pp.Gs.Bytes()) + len(pp.G.Bytes()) + len(pp.F.Bytes()) + len(pp.H.Bytes()) + len(pp.B.Bytes())
+}
+
 func NewPublicParams(n int) *PP {
 	pp := &PP{
 		Gs: common.RandGenVec(n, "sum argument Gs"),

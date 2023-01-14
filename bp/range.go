@@ -31,6 +31,10 @@ func NewRangeProofPublicParams(n int) *RangeProofPublicParams {
 	return rppp
 }
 
+func (rppp *RangeProofPublicParams) Size() int {
+	return len(rppp.Gs.Bytes()) + len(rppp.Hs.Bytes()) + len(rppp.Fs.Bytes()) + len(rppp.G.Bytes()) + len(rppp.H.Bytes()) + len(rppp.F.Bytes())
+}
+
 func (rppp *RangeProofPublicParams) Digest() []byte {
 	if len(rppp.digest) != 0 {
 		return rppp.digest

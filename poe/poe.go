@@ -25,6 +25,10 @@ type PP struct {
 	PP     *pp.PP
 }
 
+func (pp *PP) Size() int {
+	return len(pp.G.Bytes()) + len(pp.H.Bytes()) + len(pp.F.Bytes()) + pp.PP.Size()
+}
+
 func NewPublicParams(n, m int) *PP {
 	pp := &PP{
 		PP: pp.NewPublicParams(n),
