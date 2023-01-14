@@ -1,9 +1,12 @@
 package sparse
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"math/bits"
+	"math/big"
+	"pol/common"
+	"strconv"
 )
 
 type Tree struct {
@@ -90,58 +93,90 @@ func (v *Vertex) rawData(size int) []interface{} {
 	return res
 }
 
-func byteArrayToBitArray(in []byte) []byte {
-	var out []byte
-
-	for len(in) > 0 {
-		firstByte := in[0]
-		in = in[1:]
-
-		var c int
-
-		for firstByte > 0 {
-			out = append(out, firstByte&1)
-			firstByte = firstByte >> 1
-			c++
-		}
-
-		// Pad with zeroes to fill a 8 sized slice
-		for c < 8 {
-			out = append(out, 0)
-			c++
-		}
+func DigitPath(s string) []uint16 {
+	if len(s) != 9 {
+		panic(fmt.Sprintf("%s is not a 9 digit decimal number", s))
+	}
+	num, err := strconv.ParseInt(s, 10, 32)
+	if err != nil {
+		panic(fmt.Sprintf("%s is not a valid decimal number", s))
 	}
 
-	return out
+	var res []uint16
+
+	for num > 0 {
+		res = append(res, uint16(num%7))
+		num /= 7
+	}
+
+	if len(res) == 10 {
+		res = append(res, 0)
+	}
+
+	return res
 }
 
-func HexId2PathForFanout(fanout uint16) func(string) []uint16 {
-	bitLen := bits.Len16(fanout) - 1
+var (
+	ExpectedHexPathLengthByFanOut = map[uint16]int{
+		3:     162,
+		7:     91,
+		15:    66,
+		31:    52,
+		63:    43,
+		127:   37,
+		255:   32,
+		511:   29,
+		1023:  26,
+		2047:  24,
+		4095:  22,
+		8191:  20,
+		16383: 19,
+	}
+)
+
+func HexId2PathForFanOut(fanout uint16) func(string) []uint16 {
+	if !common.IsPowerOfTwo(fanout + 1) {
+		panic(fmt.Sprintf("fanout %d+1 is not a power of two", fanout))
+	}
+
+	_, exists := ExpectedHexPathLengthByFanOut[fanout]
+	if !exists {
+		panic(fmt.Sprintf("a fanout of %d is not supported!", fanout))
+	}
 
 	return func(s string) []uint16 {
-		bytes, err := hex.DecodeString(s)
-		if err != nil {
-			panic(fmt.Sprintf("%s is not a hexadecimal string", s))
-		}
+		expectedPathLen := ExpectedHexPathLengthByFanOut[fanout]
 
-		b := byteArrayToBitArray(bytes)
-
-		// Pad with zeros to ensure 'b' is a multiple of bitLen
-		for len(b)%bitLen != 0 {
-			b = append(b, 0)
-		}
-
-		var res []uint16
-		for len(b) > 0 {
-			var sum uint16
-			for i := 0; i < bitLen; i++ {
-				sum += uint16(b[0]) * (uint16(1) << i)
-				b = b[1:]
+		for {
+			path := convertPathWithFanout(s, fanout)
+			if len(path) == expectedPathLen {
+				return path
 			}
-			res = append(res, sum)
-
+			s = hash(s)
 		}
-
-		return res
 	}
+}
+
+func hash(s string) string {
+	h := sha256.New()
+	h.Write([]byte(s))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func convertPathWithFanout(s string, fanOut uint16) []uint16 {
+	n, ok := big.NewInt(0).SetString(s, 16)
+	if !ok {
+		panic(fmt.Sprintf("failed parsing %s as a hexadecimal number", s))
+	}
+
+	var res []uint16
+
+	fo := big.NewInt(int64(fanOut))
+
+	for n.Cmp(big.NewInt(0)) != 0 {
+		res = append(res, uint16(big.NewInt(0).Mod(n, fo).Int64()))
+		n.Div(n, fo)
+	}
+
+	return res
 }

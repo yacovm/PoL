@@ -3,14 +3,11 @@ package verkle
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"fmt"
+	math "github.com/IBM/mathlib"
 	"pol/common"
 	"pol/pp"
 	"pol/sparse"
 	"pol/sum"
-	"strconv"
-
-	math "github.com/IBM/mathlib"
 )
 
 var (
@@ -85,14 +82,7 @@ func (v *Vertex) Digest() *math.Zr {
 	return common.FieldElementFromBytes(hash)
 }
 
-func NewVerkleTree(fanOut uint16) *Tree {
-	var id2Path func(string) []uint16
-
-	if common.IsPowerOfTwo(fanOut + 1) {
-		id2Path = sparse.HexId2PathForFanout(fanOut)
-	} else {
-		id2Path = decimalId2Path
-	}
+func NewVerkleTree(fanOut uint16, id2Path func(string) []uint16) *Tree {
 	t := &Tree{
 		PP: pp.NewPublicParams(int(fanOut + 2)),
 		Tree: &sparse.Tree{
@@ -121,23 +111,7 @@ func (t *Tree) Get(id string) (int64, []*Vertex, bool) {
 }
 
 func (t *Tree) Put(id string, data int64) {
-	t.validateInput(id, data) // TODO: remove this later for performance improvements
 	t.Tree.Put(id, data)
-}
-
-func (t *Tree) validateInput(id string, data interface{}) {
-	if _, isInt := data.(int64); !isInt {
-		panic(fmt.Sprintf("Verkle Tree leaf entries can only be of type int"))
-	}
-
-	path := t.Tree.ID2Path(id)
-	if t.depth == 0 {
-		t.depth = len(path)
-	}
-
-	if t.depth != len(path) {
-		panic(fmt.Sprintf("Verkle Tree of depth %d cannot insert leaves at depth %d", t.depth, len(path)))
-	}
 }
 
 func (t *Tree) updateInnerVertex(node interface{}, descendants []interface{}, descendantsLeaves bool, index int) interface{} {
@@ -308,19 +282,4 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 
 func updateSum(sum, removed, added *math.Zr) *math.Zr {
 	return c.ModAdd(sum, c.ModSub(added, removed, c.GroupOrder), c.GroupOrder)
-}
-
-func decimalId2Path(s string) []uint16 {
-	var res []uint16
-
-	for i := 0; i < len(s); i++ {
-		decimal := fmt.Sprintf("%v", s[i])
-		n, err := strconv.ParseUint(decimal, 10, 16)
-		if err != nil {
-			panic(fmt.Sprintf("%s is not a decimal string", decimal))
-		}
-		res = append(res, uint16(n))
-	}
-
-	return res
 }

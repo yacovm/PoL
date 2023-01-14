@@ -1,8 +1,9 @@
 package sparse
 
 import (
-	"crypto/sha256"
+	"crypto/rand"
 	"encoding/hex"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -95,10 +96,78 @@ func TestSparseBinarySummationTree(t *testing.T) {
 	}
 }
 
+func TestSSNSummationTree(t *testing.T) {
+	tree := Tree{
+		FanOut:  10,
+		ID2Path: DigitPath,
+		UpdateInnerVertex: func(node interface{}, descendants []interface{}, _ bool, _ int) interface{} {
+			var sum int
+			for _, n := range descendants {
+				if n != nil {
+					sum += n.(int)
+				}
+			}
+			return sum
+		},
+	}
+
+	for _, tst := range []struct {
+		string
+		int
+	}{
+		{"123456789", 5},
+		{
+			"123456780", 4,
+		},
+		{
+			"123456700", 3,
+		},
+		{
+			"123456000", 2,
+		},
+	} {
+		tst := tst
+		t.Run(tst.string, func(t *testing.T) {
+			tree.Put(tst.string, tst.int)
+		})
+	}
+
+	for _, tst := range []struct {
+		bool
+		string
+		int
+	}{
+		{
+			true, "123456789", 5,
+		},
+		{
+			true, "123456780", 4,
+		},
+		{
+			true, "123456700", 3,
+		},
+		{
+			true, "123456000", 2,
+		},
+		{
+			false, "123406700", 0,
+		},
+	} {
+		tst := tst
+		t.Run(tst.string, func(t *testing.T) {
+			val, _, ok := tree.Get(tst.string)
+			if ok {
+				assert.Equalf(t, tst.int, val, "%d is empty", tst.int)
+			}
+			assert.Equal(t, tst.bool, ok)
+		})
+	}
+}
+
 func TestSparsePowerTwoSummationTree(t *testing.T) {
 	tree := Tree{
-		FanOut:  8,
-		ID2Path: HexId2PathForFanout(8),
+		FanOut:  7,
+		ID2Path: HexId2PathForFanOut(7),
 		UpdateInnerVertex: func(node interface{}, descendants []interface{}, _ bool, _ int) interface{} {
 			var sum int
 			for _, n := range descendants {
@@ -134,32 +203,81 @@ func TestSparsePowerTwoSummationTree(t *testing.T) {
 	}
 
 	for _, tst := range []struct {
+		bool
 		string
 		int
 	}{
 		{
-			hash("5"), 5,
+			true, hash("5"), 5,
 		},
-		/*		{
-					hash("4"), 4,
-				},
-				{
-					hash("3"), 3,
-				},
-				{
-					hash("2"), 2,
-				},*/
+		{
+			true, hash("4"), 4,
+		},
+		{
+			true, hash("3"), 3,
+		},
+		{
+			true, hash("2"), 2,
+		},
+		{
+			false, hash("1"), 0,
+		},
 	} {
 		tst := tst
 		t.Run(tst.string, func(t *testing.T) {
-			val, _, _ := tree.Get(tst.string)
-			assert.Equalf(t, tst.int, val, "%d is empty", tst.int)
+			val, _, ok := tree.Get(tst.string)
+			if ok {
+				assert.Equalf(t, tst.int, val, "%d is empty", tst.int)
+			}
+			assert.Equal(t, tst.bool, ok)
 		})
 	}
 }
 
-func hash(s string) string {
-	h := sha256.New()
-	h.Write([]byte(s))
-	return hex.EncodeToString(h.Sum(nil))
+func TestHexPathIsInCorrectLength(t *testing.T) {
+
+	for fanout := range ExpectedHexPathLengthByFanOut {
+		id2Path := HexId2PathForFanOut(fanout)
+
+		pathLengths := make(map[int]int)
+
+		for i := 0; i < 10000; i++ {
+			buff := make([]byte, 32)
+			_, err := rand.Read(buff)
+			assert.NoError(t, err)
+
+			s := hex.EncodeToString(buff)
+
+			pathLengths[len(id2Path(s))]++
+		}
+
+		assert.Len(t, pathLengths, 1, pathLengths)
+	}
+
+}
+
+func TestDigitPathIsInCorrectLength(t *testing.T) {
+
+	id2Path := DigitPath
+
+	pathLengths := make(map[int]int)
+
+	for i := 0; i < 100000; i++ {
+		buff := make([]byte, 32)
+		_, err := rand.Read(buff)
+		assert.NoError(t, err)
+
+		n := big.NewInt(0).SetBytes(buff)
+		n.Abs(n)
+
+		n.Mod(n, big.NewInt(1000000000))
+		if len(n.String()) != 9 {
+			continue
+		}
+
+		pathLengths[len(id2Path(n.String()))]++
+	}
+
+	assert.Len(t, pathLengths, 1, pathLengths)
+
 }

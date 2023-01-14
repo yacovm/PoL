@@ -4,13 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"pol/common"
+	"pol/sparse"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestVerkleTree(t *testing.T) {
-	tree := NewVerkleTree(1023)
+	tree := NewVerkleTree(1023, sparse.HexId2PathForFanOut(1023))
 
 	tree.Put(hash("a"), 5)
 	tree.Put(hash("b"), 6)

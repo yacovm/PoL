@@ -4,15 +4,26 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	math "github.com/IBM/mathlib"
 	"pol/bp"
 	"pol/common"
 	"pol/poe"
 	"pol/pp"
+	"pol/sparse"
 	"pol/sum"
 	"pol/verkle"
 	"sync"
 	"sync/atomic"
+
+	math "github.com/IBM/mathlib"
+)
+
+type TreeType bool
+
+const (
+	// Sparse tree type allows referencing liabilities by hexadecimal strings of 64 characters
+	Sparse TreeType = false
+	// Dense tree type allows referencing liabilities by nine decimal digits
+	Dense = true
 )
 
 type LiabilitySet struct {
@@ -28,21 +39,39 @@ type PublicParams struct {
 	Fanout int
 }
 
-func NewLiabilitySet(fanout uint16) *LiabilitySet {
-	tree := verkle.NewVerkleTree(fanout)
+// NewLiabilitySet creates a liability set with the given fanout and tree type.
+// If the treeType passed is dense, the fan-out is ignored as the tree is dense.
+// If the treeType passed is sparse, the given fan-out is used.
+// Only a fan-out of the form 2^k - 1 for some natural k is permitted.
+func NewLiabilitySet(fanOut uint16, treeType TreeType) *LiabilitySet {
 
-	m := len(tree.Tree.ID2Path(hash("bla bla"))) - 1
+	var id2Path func(string) []uint16
+	var m int
+
+	if treeType == Dense {
+		fanOut = 7
+		m = 10
+		id2Path = sparse.DigitPath
+	}
+
+	if treeType == Sparse {
+		m = sparse.ExpectedHexPathLengthByFanOut[fanOut] - 1
+		id2Path = sparse.HexId2PathForFanOut(fanOut)
+	}
+
+	tree := verkle.NewVerkleTree(fanOut, id2Path)
+
 	for !common.IsPowerOfTwo(uint16(m)) {
 		m = m + 1
 	}
 
-	poePP := poe.NewPublicParams(int(fanout+2), m)
+	poePP := poe.NewPublicParams(int(fanOut+2), m)
 	tree.PP = poePP.PP
 
-	n := int(fanout + 1)
+	n := int(fanOut + 1)
 
 	pp := &PublicParams{
-		Fanout: int(fanout),
+		Fanout: int(fanOut),
 		PPPP:   poePP.PP,
 		SAPP:   sum.NewPublicParams(n),
 		RPPP:   bp.NewRangeProofPublicParams(n),
