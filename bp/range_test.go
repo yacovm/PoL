@@ -2,9 +2,10 @@ package bp
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"pol/common"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRangeProof(t *testing.T) {

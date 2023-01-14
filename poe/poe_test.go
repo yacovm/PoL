@@ -3,10 +3,11 @@ package poe
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"github.com/stretchr/testify/assert"
 	"pol/common"
 	"pol/pp"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestProofOfEqualities(t *testing.T) {

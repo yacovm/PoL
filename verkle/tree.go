@@ -3,11 +3,12 @@ package verkle
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	math "github.com/IBM/mathlib"
 	"pol/common"
 	"pol/pp"
 	"pol/sparse"
 	"pol/sum"
+
+	math "github.com/IBM/mathlib"
 )
 
 var (

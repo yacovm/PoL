@@ -2,9 +2,10 @@ package sum
 
 import (
 	"crypto/sha256"
-	math "github.com/IBM/mathlib"
 	"pol/bp"
 	"pol/common"
+
+	math "github.com/IBM/mathlib"
 )
 
 var (
