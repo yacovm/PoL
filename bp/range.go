@@ -120,7 +120,11 @@ func VerifyRange(pp *RangeProofPublicParams, rp *RangeProof, V *math.G1) error {
 	y0Inverse := invertZr(y0)
 	Fprime := pp.Fs.MulV(common.PowerSeries(len(pp.Fs), y0Inverse))
 
-	ipaPP := NewPublicParams(len(pp.Fs))
+	ipaPP := &PP{
+		U: common.RandGenVec(1, "u")[0],
+		G: pp.Hs,
+		H: Fprime,
+	}
 	ipaPP.G = pp.Hs
 	ipaPP.H = Fprime
 	ipaPP.RecomputeDigest()
@@ -233,9 +237,12 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 	a, b := aPrime.Add(s.Mul(z)), bPrime.Add(y0v.HadamardProd(t).Concat(zeros).Mul(z))
 
 	c := a.InnerProd(b)
-	ipaPP := NewPublicParams(len(a))
-	ipaPP.G = pp.Hs
-	ipaPP.H = Fprime
+
+	ipaPP := &PP{
+		U: common.RandGenVec(1, "u")[0],
+		G: pp.Hs,
+		H: Fprime,
+	}
 	ipaPP.RecomputeDigest()
 
 	ipa := NewInnerProdArgument(ipaPP, a, b)

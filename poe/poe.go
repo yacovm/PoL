@@ -111,9 +111,13 @@ func (e *Equalities) Verify(proof *AggregatedProof) error {
 	P.Add(proof.V)
 	P.Add(e.PP.H.MulV(b).Sum())
 
-	bpPP := bp.NewPublicParams(n)
-	bpPP.G = e.PP.G
-	bpPP.H = e.PP.H
+	bpPP := &bp.PP{
+		U: common.RandGenVec(1, "u")[0],
+		G: e.PP.G,
+		H: e.PP.H,
+	}
+
+	bpPP.RecomputeDigest()
 
 	proof.IPP.C = proof.c
 	proof.IPP.P = P
@@ -206,9 +210,13 @@ func (e *Equalities) Prove(vs, ws []common.Vec) *AggregatedProof {
 	P.Add(V)
 	P.Add(e.PP.H.MulV(b).Sum())
 
-	bpPP := bp.NewPublicParams(n)
-	bpPP.G = e.PP.G
-	bpPP.H = e.PP.H
+	bpPP := &bp.PP{
+		U: common.RandGenVec(1, "u")[0],
+		G: e.PP.G,
+		H: e.PP.H,
+	}
+	bpPP.RecomputeDigest()
+
 	ipa := bp.NewInnerProdArgument(bpPP, a, b)
 	ipa.P = P
 
