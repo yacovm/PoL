@@ -18,11 +18,16 @@ func TestPolSparse(t *testing.T) {
 	ls := NewLiabilitySet(pp, id2Path)
 
 	idBuff := make([]byte, 32)
-	_, err := rand.Read(idBuff)
+	rand.Read(idBuff)
 
 	id := hex.EncodeToString(idBuff)
 
 	ls.Set(id, 100)
+
+	idBuff = make([]byte, 32)
+	rand.Read(idBuff)
+	id = hex.EncodeToString(idBuff)
+	ls.Set(id, 101)
 
 	t1 := time.Now()
 	hundred, proof, ok := ls.ProveLiability(id)
@@ -30,16 +35,16 @@ func TestPolSparse(t *testing.T) {
 
 	vRoot, wRoot := ls.Root()
 
-	assert.Equal(t, int64(100), hundred)
+	assert.Equal(t, int64(101), hundred)
 	assert.True(t, ok)
 	t1 = time.Now()
-	err = proof.Verify(pp, id, vRoot, wRoot, id2Path)
+	err := proof.Verify(pp, id, vRoot, wRoot, id2Path)
 	fmt.Println("Verification time:", time.Since(t1))
 	assert.NoError(t, err)
 }
 
 func TestPolDense(t *testing.T) {
-	fanout := uint16(31)
+	fanout := uint16(7)
 	id2Path, pp := GeneratePublicParams(fanout, Dense)
 
 	ls := NewLiabilitySet(pp, id2Path)

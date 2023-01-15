@@ -179,8 +179,14 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 	}
 	newVal := descendants[index].(*Vertex).sum
 	newDigest := descendants[index].(*Vertex).Digest()
+	v.Digests[uint16(index)] = newDigest
 
+	//oldSumDec, _ := v.sum.Int()
 	v.sum = updateSum(v.sum, oldVal, newVal)
+
+	//newSumDec, _ := v.sum.Int()
+
+	v.values[uint16(index)] = newVal
 
 	// Update index with new value and digest
 	m := make(common.Vec, t.PP.N)
@@ -197,17 +203,23 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 	}
 
 	// Artificially append the sum
-	m = append(m, v.sum)
+	m[len(m)-2] = v.sum
 
-	pp.Update(t.PP, v.V, m, newVal, index)
-	v.values[uint16(index)] = newVal
+	// Artificially append the blinding factor
+	m[len(m)-1] = v.BlindingFactor
+
+	//pp.Update(t.PP, v.V, m, newVal, index)
+
+	shouldBeV := pp.Commit(t.PP, m)
+
+	v.V = shouldBeV
 
 	// Update last entry with sum
-	pp.Update(t.PP, v.V, m, v.sum, len(v.values))
+	//pp.Update(t.PP, v.V, m, v.sum, len(v.values))
 
 	// Update the new digest
-	pp.Update(t.PP, v.W, d, newDigest, index)
-	v.Digests[uint16(index)] = newDigest
+	v.W = pp.Commit(t.PP, d)
+	//pp.Update(t.PP, v.W, d, newDigest, index)
 
 	return v
 }

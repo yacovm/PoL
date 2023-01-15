@@ -26,6 +26,10 @@ const (
 	Dense = true
 )
 
+type Parallelism bool
+
+var ParallelismEnabled = true
+
 type LiabilitySet struct {
 	tree *verkle.Tree
 	pp   *PublicParams
@@ -152,12 +156,18 @@ func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *mat
 			equalities.W[i] = lp.V[i+1]
 		}
 
-		go func(rp *bp.RangeProof, V *math.G1) {
+		verifyRangeProof := func(rp *bp.RangeProof, V *math.G1) {
 			defer rangeProofsVerification.Done()
 			if err := bp.VerifyRange(publicParams.RPPP, rp, V); err != nil {
 				detectedRangeProofErr.Store(err)
 			}
-		}(lp.RangeProofs[i], lp.V[i])
+		}
+
+		if ParallelismEnabled {
+			go verifyRangeProof(lp.RangeProofs[i], lp.V[i])
+		} else {
+			verifyRangeProof(lp.RangeProofs[i], lp.V[i])
+		}
 
 		if i == len(path)-1 {
 			// This is the leaf layer, so we have no W.
@@ -297,6 +307,8 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 			}
 		}
 
+		values := v.Values(ls.tree.Tree.FanOut + 1)
+
 		// The last entry in the path points is the liabilities and not to other layers in the tree
 		if i < len(path)-1 {
 			equalities.I[i] = int(path[i])
@@ -306,19 +318,25 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 
 			vEQ[i] = make(common.Vec, ls.tree.Tree.FanOut+2)
 			wEQ[i] = make(common.Vec, ls.tree.Tree.FanOut+2)
-			copy(vEQ[i], v.Values(ls.tree.Tree.FanOut+1))
+			copy(vEQ[i], values)
 			copy(wEQ[i], verticesAlongThePath[i+1].Values(ls.tree.Tree.FanOut+1))
 			vEQ[i][ls.tree.Tree.FanOut+1] = v.BlindingFactor
 			wEQ[i][ls.tree.Tree.FanOut+1] = verticesAlongThePath[i+1].BlindingFactor
 		}
 
-		go func(i int, pp *bp.RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr) {
+		createRangeProof := func(i int, pp *bp.RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr) {
 			defer rangeProofProduction.Done()
 			rp := bp.ProveRange(pp, V, v, r)
 			lock.Lock()
 			proof.RangeProofs[i] = rp
 			lock.Unlock()
-		}(i, ls.pp.RPPP, v.V, v.Values(ls.tree.Tree.FanOut+1), v.BlindingFactor)
+		}
+
+		if ParallelismEnabled {
+			go createRangeProof(i, ls.pp.RPPP, v.V, values, v.BlindingFactor)
+		} else {
+			createRangeProof(i, ls.pp.RPPP, v.V, values, v.BlindingFactor)
+		}
 
 		digest, π := pp.Open(ls.tree.PP, int(path[i]), digests)
 
