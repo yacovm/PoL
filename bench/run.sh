@@ -1,0 +1,1 @@
+nohup ./bench &> out.log &

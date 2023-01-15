@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	universeSize = 1000 * 1000
-	//universeSize = 1000
+	totalPopulation = 1000 * 1000
+	//totalPopulation = 1000
 )
 
 var (
@@ -108,6 +108,8 @@ func main() {
 		sparse:     make(measurementByFanOut),
 	}
 
+	fmt.Println("Population:", totalPopulation)
+
 	measurePPGen(m)
 
 	treeType := setTreeType()
@@ -120,6 +122,7 @@ func main() {
 			return hex.EncodeToString(buff)
 		}
 	} else {
+		fmt.Println("Benchmarking dense liablity set...")
 		idGen = func(buff []byte) string {
 			n := big.NewInt(0)
 			n.Add(n, big.NewInt(1000*1000*100))
@@ -130,7 +133,7 @@ func main() {
 		}
 	}
 
-	measureConstructProofVerify(m.iterations, m.sparse, universeSize, pol.Sparse, idGen)
+	measureConstructProofVerify(m.iterations, m.sparse, totalPopulation, pol.Sparse, idGen)
 
 	fmt.Println("PP sizes:", m.sparse.ppSizes())
 	fmt.Println("Proof sizes:", m.sparse.proofSizes())
@@ -154,7 +157,7 @@ func setTreeType() pol.TreeType {
 	}
 
 	if treeType == "DENSE" {
-		fmt.Println("Tree type is set to Sparse")
+		fmt.Println("Tree type is set to Dense")
 		return pol.Dense
 	}
 
