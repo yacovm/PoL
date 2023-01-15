@@ -3,6 +3,9 @@ package verkle
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/asn1"
+	"encoding/binary"
+	"io"
 	"pol/common"
 	"pol/pp"
 	"pol/sparse"
@@ -29,6 +32,19 @@ type Vertex struct {
 	sum            *math.Zr
 	V              *math.G1 // Commitment to values of descendants
 	W              *math.G1 // Commitment to Digests of descendants
+}
+
+type KV struct {
+	K []byte
+	V []byte
+}
+
+type RawVertex struct {
+	BlindingFactor []byte
+	Values         []KV
+	Digests        []KV
+	Sum            []byte
+	V, W           []byte
 }
 
 type Vertices []*Vertex
@@ -73,6 +89,70 @@ func (v *Vertex) Values(n int) common.Vec {
 	return res
 }
 
+func (v *Vertex) FromBytes(bytes []byte) {
+	rv := &RawVertex{}
+	if _, err := asn1.Unmarshal(bytes, rv); err != nil {
+		panic(err)
+	}
+
+	var err error
+	v.BlindingFactor = c.NewZrFromBytes(rv.BlindingFactor)
+	v.sum = c.NewZrFromBytes(rv.Sum)
+
+	v.V, err = c.NewG1FromBytes(rv.V)
+	if err != nil {
+		panic(err)
+	}
+
+	v.W, err = c.NewG1FromBytes(rv.W)
+	if err != nil {
+		panic(err)
+	}
+
+	v.Digests = make(map[uint16]*math.Zr)
+	v.values = make(map[uint16]*math.Zr)
+
+	for _, kv := range rv.Digests {
+		v.Digests[binary.BigEndian.Uint16(kv.K)] = c.NewZrFromBytes(kv.V)
+	}
+
+	for _, kv := range rv.Values {
+		v.values[binary.BigEndian.Uint16(kv.K)] = c.NewZrFromBytes(kv.V)
+	}
+}
+
+func (v *Vertex) Bytes() []byte {
+	var wBytes []byte
+	if v.W != nil {
+		wBytes = v.W.Bytes()
+	}
+	rv := RawVertex{
+		V:              v.V.Bytes(),
+		W:              wBytes,
+		BlindingFactor: v.BlindingFactor.Bytes(),
+		Sum:            v.sum.Bytes(),
+	}
+
+	for k, v := range v.Digests {
+		kBuff := make([]byte, 2)
+		binary.BigEndian.PutUint16(kBuff, k)
+		rv.Digests = append(rv.Digests, KV{K: kBuff, V: v.Bytes()})
+	}
+
+	for k, v := range v.values {
+		kBuff := make([]byte, 2)
+		binary.BigEndian.PutUint16(kBuff, k)
+		rv.Values = append(rv.Values, KV{K: kBuff, V: v.Bytes()})
+	}
+
+	bytes, err := asn1.Marshal(rv)
+	if err != nil {
+		panic(err)
+	}
+
+	return bytes
+}
+
 func (v *Vertex) Digest() *math.Zr {
 	h := sha256.New()
 	h.Write(v.V.Bytes())
@@ -95,6 +175,16 @@ func NewVerkleTree(fanOut uint16, id2Path func(string) []uint16) *Tree {
 	t.Tree.UpdateInnerVertex = t.updateInnerVertex
 	return t
 
+}
+
+func (t *Tree) Serialize(out io.Writer) {
+	t.Tree.Root.Serialize(out, "", func(data interface{}) []byte {
+		_, isVertex := data.(*Vertex)
+		if !isVertex {
+			return nil
+		}
+		return data.(*Vertex).Bytes()
+	})
 }
 
 func (t *Tree) Get(id string) (int64, []*Vertex, bool) {

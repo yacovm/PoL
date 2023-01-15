@@ -1,6 +1,7 @@
 package verkle
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"pol/common"
@@ -64,4 +65,15 @@ func TestUpdateSum(t *testing.T) {
 	y := c.NewZrFromInt(300)
 	sum2 := updateSum(sum, x, y)
 	assert.Equal(t, c.NewZrFromInt(800), sum2)
+}
+
+func TestSerializeVerkleTree(t *testing.T) {
+	tree := NewVerkleTree(1023, sparse.HexId2PathForFanOut(1023))
+
+	tree.Put(hash("a"), 5)
+	tree.Put(hash("b"), 6)
+
+	buff := &bytes.Buffer{}
+
+	tree.Serialize(buff)
 }

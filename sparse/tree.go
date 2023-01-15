@@ -2,8 +2,11 @@ package sparse
 
 import (
 	"crypto/sha256"
+	"encoding/asn1"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"math/big"
 	"pol/common"
 	"strconv"
@@ -79,6 +82,33 @@ type Vertex struct {
 	Data        interface{}
 	Descendants map[uint16]*Vertex
 	Parent      *Vertex
+}
+
+type RawVertex struct {
+	Path   string
+	Vertex []byte
+}
+
+func (v *Vertex) Serialize(out io.Writer, path string, vertexToBytes func(interface{}) []byte) {
+	bytes, err := asn1.Marshal(RawVertex{
+		Path:   path,
+		Vertex: vertexToBytes(v.Data),
+	})
+
+	if err != nil {
+		panic(err)
+	}
+
+	header := make([]byte, 32)
+	binary.BigEndian.PutUint32(header, uint32(len(bytes)))
+
+	out.Write(header)
+	out.Write(bytes)
+
+	for k, v := range v.Descendants {
+		descPath := fmt.Sprintf("%s.%d", path, k)
+		v.Serialize(out, descPath, vertexToBytes)
+	}
 }
 
 func (v *Vertex) AddDescendant(u *Vertex, at uint16) {
