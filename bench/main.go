@@ -13,13 +13,13 @@ import (
 )
 
 const (
-	//universeSize = 330 * 1000 * 1000
-	universeSize = 1000
+	universeSize = 330 * 1000 * 1000
+	//universeSize = 1000
 )
 
 var (
-	//fanouts = []uint16{3, 7, 15, 31, 63, 127, 255, 511}
-	fanouts = []uint16{3, 7}
+	fanouts = []uint16{3, 7, 15, 31, 63, 127, 255, 511}
+	//fanouts = []uint16{3, 7}
 )
 
 type sizes []int
