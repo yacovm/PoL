@@ -63,6 +63,21 @@ type RangeProof struct {
 	τ, ρ         *math.Zr
 }
 
+func (rp *RangeProof) Size() int {
+	size := len(rp.τ.Bytes()) + len(rp.ρ.Bytes()) + len(rp.Q.Bytes()) + len(rp.R.Bytes()) + len(rp.C1.Bytes()) + len(rp.C2.Bytes())
+	size += len(rp.c.Bytes())
+	size += rp.Π.Size()
+	size += len(rp.γ.Bytes())
+	size += len(rp.W.Bytes())
+	size += len(rp.u.Bytes())
+	for i := 0; i < len(rp.Δ); i++ {
+		size += len(rp.Δ[i][0].Bytes())
+		size += len(rp.Δ[i][1].Bytes())
+		size += len(rp.Δ[i][2].Bytes())
+	}
+	return size
+}
+
 func VerifyRange(pp *RangeProofPublicParams, rp *RangeProof, V *math.G1) error {
 	n := len(pp.Gs)
 

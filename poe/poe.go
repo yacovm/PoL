@@ -64,6 +64,10 @@ type AggregatedProof struct {
 	Waggr, Vaggr common.G1v
 }
 
+func (ap *AggregatedProof) Size() int {
+	return ap.IPP.Size() + len(ap.c.Bytes()) + len(ap.ρ.Bytes()) + len(ap.U.Bytes()) + len(ap.V.Bytes()) + len(ap.Ω.Bytes()) + len(ap.Waggr.Bytes()) + len(ap.Vaggr.Bytes())
+}
+
 func (e *Equalities) Verify(proof *AggregatedProof) error {
 	var groupElements common.G1v
 	groupElements = append(groupElements, proof.Vaggr...)

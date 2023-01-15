@@ -119,6 +119,14 @@ func (v Vec) Zero() {
 	}
 }
 
+func (v Vec) Size() int {
+	var c int
+	for i := 0; i < len(v); i++ {
+		c += len(v[i].Bytes())
+	}
+	return c
+}
+
 func (v Vec) Concat(v2 Vec) Vec {
 	res := make(Vec, len(v)+len(v2))
 	copy(res, v)

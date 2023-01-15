@@ -99,10 +99,19 @@ type LiabilityProof struct {
 	PointProofπ      *math.G1
 	SumArgumentProof *sum.Proof
 	V                common.G1v
-	W                []*math.G1
+	W                common.G1v
 	Digests          common.Vec
 	RangeProofs      []*bp.RangeProof
 	EqualityProof    *poe.AggregatedProof
+}
+
+func (lp LiabilityProof) Size() int {
+	size := len(lp.PointProofΣ.Bytes()) + len(lp.PointProofπ.Bytes()) + lp.SumArgumentProof.Size() + len(lp.V.Bytes()) + len(lp.W.Bytes()) + lp.Digests.Size()
+	for _, rp := range lp.RangeProofs {
+		size += rp.Size()
+	}
+	size += lp.EqualityProof.Size()
+	return size
 }
 
 func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *math.G1, id2path func(string) []uint16) error {

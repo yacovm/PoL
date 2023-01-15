@@ -61,6 +61,10 @@ type InnerProductProof struct {
 	C    *math.Zr
 }
 
+func (ipp *InnerProductProof) Size() int {
+	return len(common.G1v(ipp.LRs).Bytes()) + len(ipp.a.Bytes()) + len(ipp.b.Bytes()) + len(ipp.P.Bytes()) + len(ipp.C.Bytes())
+}
+
 func NewInnerProdArgument(pp *PP, a, b common.Vec) *InnerProdArgument {
 	ipa := &InnerProdArgument{
 		C:  a.InnerProd(b),

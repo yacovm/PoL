@@ -102,6 +102,10 @@ func createHVZKChallenge(V common.G1v, m int) common.Vec {
 	return t
 }
 
+func (proof *Proof) Size() int {
+	return len(proof.c.Bytes()) + len(proof.W.Bytes()) + len(proof.ρ.Bytes())
+}
+
 func (proof *Proof) VerifyAggregated(pp *PP, V common.G1v) error {
 	t := createHVZKChallenge(V, len(V))
 	VAggr := V.MulV(t).Sum()
