@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	universeSize = 330 * 1000 * 1000
+	universeSize = 1000 * 1000
 	//universeSize = 1000
 )
 
