@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"os"
 	"pol/pol"
 	"strconv"
@@ -12,13 +13,13 @@ import (
 )
 
 const (
-	halfWorldPopulation = 4 * 1000 * 1000 * 1000
-	//halfWorldPopulation = 1000
+	//universeSize = 330 * 1000 * 1000
+	universeSize = 1000
 )
 
 var (
-	fanouts = []uint16{3, 7, 15, 31, 63, 127, 255, 511}
-	//fanouts = []uint16{3, 7}
+	//fanouts = []uint16{3, 7, 15, 31, 63, 127, 255, 511}
+	fanouts = []uint16{3, 7}
 )
 
 type sizes []int
@@ -99,6 +100,8 @@ type measurements struct {
 }
 
 func main() {
+	setParallelism()
+
 	m := &measurements{
 		iterations: getIterations(),
 		dense:      make(measurementByFanOut),
@@ -107,8 +110,27 @@ func main() {
 
 	measurePPGen(m)
 
-	fmt.Println("Benchmarking sparse liablity set...")
-	measureConstructProofVerify(m.iterations, m.sparse, halfWorldPopulation, pol.Sparse)
+	treeType := setTreeType()
+
+	var idGen idFromRandBytes
+
+	if treeType == pol.Sparse {
+		fmt.Println("Benchmarking sparse liablity set...")
+		idGen = func(buff []byte) string {
+			return hex.EncodeToString(buff)
+		}
+	} else {
+		idGen = func(buff []byte) string {
+			n := big.NewInt(0)
+			n.Add(n, big.NewInt(1000*1000*100))
+			r := big.NewInt(0).SetBytes(buff)
+			n.Add(n, r)
+			n.Mod(n, big.NewInt(1000*1000*1000))
+			return n.String()
+		}
+	}
+
+	measureConstructProofVerify(m.iterations, m.sparse, universeSize, pol.Sparse, idGen)
 
 	fmt.Println("PP sizes:", m.sparse.ppSizes())
 	fmt.Println("Proof sizes:", m.sparse.proofSizes())
@@ -119,14 +141,53 @@ func main() {
 
 }
 
-func measureConstructProofVerify(iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType) {
+func setTreeType() pol.TreeType {
+	treeType := os.Getenv("TREETYPE")
+	if treeType == "" {
+		fmt.Println("Tree type is set to Sparse. Use TREETYPE=DENSE to use a dense type")
+		return pol.Sparse
+	}
+
+	if treeType == "SPARSE" {
+		fmt.Println("Tree type is set to Sparse")
+		return pol.Sparse
+	}
+
+	if treeType == "DENSE" {
+		fmt.Println("Tree type is set to Sparse")
+		return pol.Dense
+	}
+
+	fmt.Println("TREETYPE must be either SPARSE or DENSE")
+	os.Exit(2)
+	return pol.Dense
+}
+
+func setParallelism() {
+	parallelism := os.Getenv("PARALLELISM")
+
+	if parallelism == "0" {
+		fmt.Println("Running with parallelism disabled")
+		pol.ParallelismEnabled = false
+	} else if parallelism == "1" || parallelism == "" {
+		fmt.Println("Running with parallelism enabled (Use PARALLELISM=0 to turn it off)")
+		pol.ParallelismEnabled = true
+	} else {
+		fmt.Println("PARALLELISM environment variable can either be 0 or 1")
+		os.Exit(2)
+	}
+}
+
+type idFromRandBytes func([]byte) string
+
+func measureConstructProofVerify(iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType, genID idFromRandBytes) {
 	for _, fanOut := range fanouts {
 		fmt.Println("Benchmarking fanout", fanOut, "...")
 		id2Path, pp := pol.GeneratePublicParams(fanOut, treeType)
 
 		ls := pol.NewLiabilitySet(pp, id2Path)
 
-		constructionTime := populateLiabilitySet(population, ls)
+		constructionTime := populateLiabilitySet(population, ls, genID)
 		measurementsByFanout[fanOut].constTime = constructionTime
 
 		idBuffs := make([]string, iterations)
@@ -136,8 +197,9 @@ func measureConstructProofVerify(iterations int, measurementsByFanout map[uint16
 			if err != nil {
 				panic(err)
 			}
-			idBuffs[iteration] = hex.EncodeToString(buff)
-			ls.Set(idBuffs[iteration], 666)
+			id := genID(buff)
+			idBuffs[iteration] = id
+			ls.Set(id, 666)
 		}
 
 		V, W := ls.Root()
@@ -164,7 +226,7 @@ func measureConstructProofVerify(iterations int, measurementsByFanout map[uint16
 	}
 }
 
-func populateLiabilitySet(population int, ls *pol.LiabilitySet) time.Duration {
+func populateLiabilitySet(population int, ls *pol.LiabilitySet, genID idFromRandBytes) time.Duration {
 	var constructionTime time.Duration
 
 	fmt.Println("Populating liability set...")
@@ -177,7 +239,7 @@ func populateLiabilitySet(population int, ls *pol.LiabilitySet) time.Duration {
 			if err != nil {
 				panic(err)
 			}
-			idBuffs[j] = hex.EncodeToString(buff)
+			idBuffs[j] = genID(buff)
 		}
 
 		start := time.Now()
@@ -224,13 +286,15 @@ func measurePPGen(m *measurements) {
 func getIterations() int {
 	var err error
 	iterationsString := os.Getenv("ITERATIONS")
-	iterations := int64(2)
+	iterations := int64(10)
 	if iterationsString != "" {
 		iterations, err = strconv.ParseInt(iterationsString, 10, 32)
 		if err != nil {
 			panic(err)
 		}
 	}
+
+	fmt.Println("Will amortize over", iterations, "iterations")
 
 	return int(iterations)
 }

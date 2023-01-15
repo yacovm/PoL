@@ -12,6 +12,7 @@ import (
 )
 
 func TestPolSparse(t *testing.T) {
+	ParallelismEnabled = false
 	fanout := uint16(7)
 	id2Path, pp := GeneratePublicParams(fanout, Sparse)
 
