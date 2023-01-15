@@ -12,12 +12,13 @@ import (
 )
 
 const (
-	//halfWorldPopulation = 4 * 1000 * 1000 * 1000
-	halfWorldPopulation = 1000
+	halfWorldPopulation = 4 * 1000 * 1000 * 1000
+	//halfWorldPopulation = 1000
 )
 
 var (
 	fanouts = []uint16{3, 7, 15, 31, 63, 127, 255, 511}
+	//fanouts = []uint16{3, 7}
 )
 
 type sizes []int
@@ -104,7 +105,7 @@ func main() {
 		sparse:     make(measurementByFanOut),
 	}
 
-	//measurePPGen(m)
+	measurePPGen(m)
 
 	fmt.Println("Benchmarking sparse liablity set...")
 	measureConstructProofVerify(m.iterations, m.sparse, halfWorldPopulation, pol.Sparse)
@@ -125,8 +126,8 @@ func measureConstructProofVerify(iterations int, measurementsByFanout map[uint16
 
 		ls := pol.NewLiabilitySet(pp, id2Path)
 
-		//constructionTime := populateLiabilitySet(population, ls)
-		//measurementsByFanout[fanOut].constTime = constructionTime
+		constructionTime := populateLiabilitySet(population, ls)
+		measurementsByFanout[fanOut].constTime = constructionTime
 
 		idBuffs := make([]string, iterations)
 		for iteration := 0; iteration < iterations; iteration++ {
@@ -143,21 +144,21 @@ func measureConstructProofVerify(iterations int, measurementsByFanout map[uint16
 
 		for iteration := 0; iteration < iterations; iteration++ {
 			fmt.Println("iteration", iteration)
-			//start := time.Now()
+			start := time.Now()
 			_, π, ok := ls.ProveLiability(idBuffs[iteration])
 			if !ok {
 				panic("liability not found!!")
 			}
-			//elapsed := time.Since(start)
-			//measurementsByFanout[fanOut].proofTime = append(measurementsByFanout[fanOut].proofTime, elapsed)
+			elapsed := time.Since(start)
+			measurementsByFanout[fanOut].proofTime = append(measurementsByFanout[fanOut].proofTime, elapsed)
 
-			//start = time.Now()
+			start = time.Now()
 			if err := π.Verify(pp, idBuffs[iteration], V, W, id2Path); err != nil {
 				panic(err)
 			}
-			//elapsed = time.Since(start)
-			//measurementsByFanout[fanOut].verifyTime = append(measurementsByFanout[fanOut].verifyTime, elapsed)
-			//measurementsByFanout[fanOut].proofSize = append(measurementsByFanout[fanOut].proofSize, π.Size())
+			elapsed = time.Since(start)
+			measurementsByFanout[fanOut].verifyTime = append(measurementsByFanout[fanOut].verifyTime, elapsed)
+			measurementsByFanout[fanOut].proofSize = append(measurementsByFanout[fanOut].proofSize, π.Size())
 		}
 
 	}
@@ -223,7 +224,7 @@ func measurePPGen(m *measurements) {
 func getIterations() int {
 	var err error
 	iterationsString := os.Getenv("ITERATIONS")
-	iterations := int64(10)
+	iterations := int64(2)
 	if iterationsString != "" {
 		iterations, err = strconv.ParseInt(iterationsString, 10, 32)
 		if err != nil {
