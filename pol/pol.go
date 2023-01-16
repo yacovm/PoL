@@ -12,6 +12,7 @@ import (
 	"pol/verkle"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	math "github.com/IBM/mathlib"
 )
@@ -269,7 +270,7 @@ func (ls *LiabilitySet) Get(id string) (int64, bool) {
 	return liability, ok
 }
 
-func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) {
+func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, time.Duration, bool) {
 	path := ls.tree.Tree.ID2Path(id)
 	liability, verticesAlongThePath, ok := ls.tree.Get(id)
 
@@ -278,8 +279,10 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 	var digestProofs common.G1v
 
 	if !ok {
-		return 0, proof, false
+		return 0, proof, 0, false
 	}
+
+	start := time.Now()
 
 	var rangeProofProduction sync.WaitGroup
 	rangeProofProduction.Add(len(path))
@@ -382,7 +385,7 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, bool) 
 
 	rangeProofProduction.Wait()
 
-	return liability, proof, true
+	return liability, proof, time.Since(start), true
 }
 
 func uint16VecToIntVec(in []uint16) []int {

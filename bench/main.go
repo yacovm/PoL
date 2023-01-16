@@ -226,15 +226,13 @@ func benchmarkFanout(iterations int, measurementsByFanout map[uint16]*measuremen
 
 	for iteration := 0; iteration < iterations; iteration++ {
 		fmt.Println("iteration", iteration)
-		start := time.Now()
-		_, π, ok := ls.ProveLiability(idBuffs[iteration])
+		_, π, elapsed, ok := ls.ProveLiability(idBuffs[iteration])
 		if !ok {
 			panic("liability not found!!")
 		}
-		elapsed := time.Since(start)
 		measurementsByFanout[fanOut].proofTime = append(measurementsByFanout[fanOut].proofTime, elapsed)
 
-		start = time.Now()
+		start := time.Now()
 		if err := π.Verify(pp, idBuffs[iteration], V, W, id2Path); err != nil {
 			panic(err)
 		}

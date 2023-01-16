@@ -40,7 +40,7 @@ func TestPolSparse(t *testing.T) {
 	ls.Set(id, 101)
 
 	t1 := time.Now()
-	hundred, proof, ok := ls.ProveLiability(id)
+	hundred, proof, _, ok := ls.ProveLiability(id)
 	fmt.Println("Proof time:", time.Since(t1))
 
 	vRoot, wRoot := ls.Root()
@@ -64,7 +64,7 @@ func TestPolDense(t *testing.T) {
 	ls.Set(id, 100)
 
 	t1 := time.Now()
-	hundred, proof, ok := ls.ProveLiability(id)
+	hundred, proof, _, ok := ls.ProveLiability(id)
 	fmt.Println("Proof time:", time.Since(t1))
 
 	vRoot, wRoot := ls.Root()
