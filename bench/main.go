@@ -5,21 +5,23 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"github.com/syndtr/goleveldb/leveldb"
 	"math/big"
 	"os"
 	"pol/pol"
+	"pol/verkle"
 	"strconv"
 	"time"
 )
 
 const (
-	totalPopulation = 1000 * 1000
-	//totalPopulation = 1000
+	//totalPopulation = 1000 * 1000
+	totalPopulation = 1000
 )
 
 var (
-	fanouts = []uint16{3, 7, 15, 31, 63, 127, 255, 511}
-	//fanouts = []uint16{3, 7}
+	//fanouts = []uint16{3, 7, 15, 31, 63, 127, 255, 511}
+	fanouts = []uint16{3, 7}
 )
 
 type sizes []int
@@ -124,16 +126,18 @@ func main() {
 	} else {
 		fmt.Println("Benchmarking dense liablity set...")
 		idGen = func(buff []byte) string {
-			n := big.NewInt(0)
-			n.Add(n, big.NewInt(1000*1000*100))
-			r := big.NewInt(0).SetBytes(buff)
-			n.Add(n, r)
+			n := big.NewInt(0).SetBytes(buff)
 			n.Mod(n, big.NewInt(1000*1000*1000))
+			if n.Cmp(big.NewInt(100*1000*1000)) < 0 {
+				n.Add(n, big.NewInt(1000*1000*100))
+			}
 			return n.String()
 		}
 	}
 
-	measureConstructProofVerify(m.iterations, m.sparse, totalPopulation, pol.Sparse, idGen)
+	db := NewDB()
+
+	measureConstructProofVerify(db, m.iterations, m.sparse, totalPopulation, pol.Sparse, idGen)
 
 	fmt.Println("PP sizes:", m.sparse.ppSizes())
 	fmt.Println("Proof sizes:", m.sparse.proofSizes())
@@ -183,12 +187,12 @@ func setParallelism() {
 
 type idFromRandBytes func([]byte) string
 
-func measureConstructProofVerify(iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType, genID idFromRandBytes) {
+func measureConstructProofVerify(db verkle.DB, iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType, genID idFromRandBytes) {
 	for _, fanOut := range fanouts {
 		fmt.Println("Benchmarking fanout", fanOut, "...")
 		id2Path, pp := pol.GeneratePublicParams(fanOut, treeType)
 
-		ls := pol.NewLiabilitySet(pp, id2Path)
+		ls := pol.NewLiabilitySet(pp, db, id2Path)
 
 		constructionTime := populateLiabilitySet(population, ls, genID)
 		measurementsByFanout[fanOut].constTime = constructionTime
@@ -300,4 +304,30 @@ func getIterations() int {
 	fmt.Println("Will amortize over", iterations, "iterations")
 
 	return int(iterations)
+}
+
+type DB struct {
+	levelDB *leveldb.DB
+}
+
+func NewDB() *DB {
+	db, err := leveldb.OpenFile("levelDB", nil)
+	if err != nil {
+		panic(err)
+	}
+	return &DB{levelDB: db}
+}
+
+func (db *DB) Get(key []byte) []byte {
+	data, err := db.levelDB.Get(key, nil)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+func (db *DB) Put(key []byte, val []byte) {
+	if err := db.levelDB.Put(key, val, nil); err != nil {
+		panic(err)
+	}
 }
