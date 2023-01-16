@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	totalPopulation = 1000 * 1000
-	//totalPopulation = 1000
+	//totalPopulation = 1000 * 1000
+	totalPopulation = 10 * 1000
 )
 
 var (
@@ -194,16 +194,31 @@ type idFromRandBytes func([]byte) string
 
 func measureConstructProofVerify(iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType, genID idFromRandBytes) {
 	for _, fanOut := range fanouts {
-		benchmarkFanout(iterations, measurementsByFanout, population, treeType, genID, fanOut)
+		retryUntilSuccess(iterations, measurementsByFanout, population, treeType, genID, fanOut)
 	}
 }
 
-func benchmarkFanout(iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType, genID idFromRandBytes, fanOut uint16) {
+func retryUntilSuccess(iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType, genID idFromRandBytes, fanOut uint16) {
+	for {
+		err := benchmarkFanout(iterations, measurementsByFanout, population, treeType, genID, fanOut)
+		if err == nil {
+			return
+		}
+	}
+}
+
+func benchmarkFanout(iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType, genID idFromRandBytes, fanOut uint16) (somethingWentWrong error) {
 	fmt.Println("Benchmarking fanout", fanOut, "...")
 	id2Path, pp := pol.GeneratePublicParams(fanOut, treeType)
 
 	db := NewDB()
 	defer db.Destroy()
+
+	defer func() {
+		if e := recover(); e != nil {
+			somethingWentWrong = fmt.Errorf("something went wrong")
+		}
+	}()
 
 	ls := pol.NewLiabilitySet(pp, db, id2Path)
 
@@ -238,8 +253,10 @@ func benchmarkFanout(iterations int, measurementsByFanout map[uint16]*measuremen
 		}
 		elapsed = time.Since(start)
 		measurementsByFanout[fanOut].verifyTime = append(measurementsByFanout[fanOut].verifyTime, elapsed)
-		measurementsByFanout[fanOut].proofSize = append(measurementsByFanout[fanOut].proofSize, π.Size())
+		measurementsByFanout[fanOut].proofSize = append(measurementsByFanout[fanOut].proofSize, π.Size()/1024)
 	}
+
+	return nil
 }
 
 func populateLiabilitySet(population int, ls *pol.LiabilitySet, genID idFromRandBytes) time.Duration {
@@ -281,7 +298,7 @@ func measurePPGen(m *measurements) {
 			_, pp := pol.GeneratePublicParams(fanOut, pol.Dense)
 			elapsed := time.Since(start)
 			m.dense[fanOut].ppGenTime = append(m.dense[fanOut].ppGenTime, elapsed)
-			m.dense[fanOut].ppSize = append(m.dense[fanOut].ppSize, pp.Size())
+			m.dense[fanOut].ppSize = append(m.dense[fanOut].ppSize, pp.Size()/1024)
 		}
 	}
 
@@ -294,7 +311,7 @@ func measurePPGen(m *measurements) {
 			_, pp := pol.GeneratePublicParams(fanOut, pol.Sparse)
 			elapsed := time.Since(start)
 			m.sparse[fanOut].ppGenTime = append(m.sparse[fanOut].ppGenTime, elapsed)
-			m.sparse[fanOut].ppSize = append(m.sparse[fanOut].ppSize, pp.Size())
+			m.sparse[fanOut].ppSize = append(m.sparse[fanOut].ppSize, pp.Size()/1024)
 		}
 	}
 }
