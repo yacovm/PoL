@@ -134,15 +134,23 @@ func main() {
 		}
 	}
 
-	measureConstructProofVerify(m.iterations, m.sparse, totalPopulation, pol.Sparse, idGen)
+	if treeType == pol.Sparse {
+		measureConstructProofVerify(m.iterations, m.sparse, totalPopulation, treeType, idGen)
+		fmt.Println("PP sizes:", m.sparse.ppSizes())
+		fmt.Println("Proof sizes:", m.sparse.proofSizes())
 
-	fmt.Println("PP sizes:", m.sparse.ppSizes())
-	fmt.Println("Proof sizes:", m.sparse.proofSizes())
+		fmt.Println("PP gen times:", m.sparse.ppGenTime())
+		fmt.Println("proof times:", m.sparse.proveTime())
+		fmt.Println("verify times:", m.sparse.verifyTime())
+	} else {
+		measureConstructProofVerify(m.iterations, m.dense, totalPopulation, treeType, idGen)
+		fmt.Println("PP sizes:", m.dense.ppSizes())
+		fmt.Println("Proof sizes:", m.dense.proofSizes())
 
-	fmt.Println("PP gen times:", m.sparse.ppGenTime())
-	fmt.Println("proof times:", m.sparse.proveTime())
-	fmt.Println("verify times:", m.sparse.verifyTime())
-
+		fmt.Println("PP gen times:", m.dense.ppGenTime())
+		fmt.Println("proof times:", m.dense.proveTime())
+		fmt.Println("verify times:", m.dense.verifyTime())
+	}
 }
 
 func setTreeType() pol.TreeType {
