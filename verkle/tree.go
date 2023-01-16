@@ -99,7 +99,6 @@ func (v *Vertex) Values(n int) common.Vec {
 func (v *Vertex) FromBytes(bytes []byte) {
 	rv := &RawVertex{}
 	if _, err := asn1.Unmarshal(bytes, rv); err != nil {
-		fmt.Println(">>>>>>>", bytes)
 		panic(err)
 	}
 
