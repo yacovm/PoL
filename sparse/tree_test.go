@@ -18,7 +18,7 @@ func TestSparseBinarySummationTree(t *testing.T) {
 			}
 			return res
 		},
-		UpdateInnerVertex: func(node interface{}, descendants []interface{}, _ bool, _ int) interface{} {
+		UpdateInnerVertex: func(key string, node interface{}, descendants []interface{}, _ bool, _ int) interface{} {
 			var sum int
 			for _, n := range descendants {
 				if n != nil {
@@ -32,10 +32,10 @@ func TestSparseBinarySummationTree(t *testing.T) {
 	originalUpdateVertex := tree.UpdateInnerVertex
 	var leaves []bool
 	var indices []int
-	instrumentedUpdateInnerVertex := func(node interface{}, descendants []interface{}, leaf bool, index int) interface{} {
+	instrumentedUpdateInnerVertex := func(key string, node interface{}, descendants []interface{}, leaf bool, index int) interface{} {
 		leaves = append(leaves, leaf)
 		indices = append(indices, index)
-		return originalUpdateVertex(node, descendants, leaf, index)
+		return originalUpdateVertex(key, node, descendants, leaf, index)
 	}
 	tree.UpdateInnerVertex = instrumentedUpdateInnerVertex
 
@@ -99,7 +99,7 @@ func TestSSNSummationTree(t *testing.T) {
 	tree := Tree{
 		FanOut:  7,
 		ID2Path: DigitPath(7),
-		UpdateInnerVertex: func(node interface{}, descendants []interface{}, _ bool, _ int) interface{} {
+		UpdateInnerVertex: func(key string, node interface{}, descendants []interface{}, _ bool, _ int) interface{} {
 			var sum int
 			for _, n := range descendants {
 				if n != nil {
@@ -167,7 +167,7 @@ func TestSparsePowerTwoSummationTree(t *testing.T) {
 	tree := Tree{
 		FanOut:  7,
 		ID2Path: HexId2PathForFanOut(7),
-		UpdateInnerVertex: func(node interface{}, descendants []interface{}, _ bool, _ int) interface{} {
+		UpdateInnerVertex: func(key string, node interface{}, descendants []interface{}, _ bool, _ int) interface{} {
 			var sum int
 			for _, n := range descendants {
 				if n != nil {

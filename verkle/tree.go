@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/asn1"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"pol/common"
 	"pol/pp"
@@ -19,7 +20,13 @@ var (
 	GroupOrder = c.GroupOrder
 )
 
+type DB interface {
+	Get([]byte) []byte
+	Put([]byte, []byte)
+}
+
 type Tree struct {
+	DB    DB
 	PP    *pp.PP
 	depth int
 	Tree  *sparse.Tree
@@ -92,6 +99,7 @@ func (v *Vertex) Values(n int) common.Vec {
 func (v *Vertex) FromBytes(bytes []byte) {
 	rv := &RawVertex{}
 	if _, err := asn1.Unmarshal(bytes, rv); err != nil {
+		fmt.Println(">>>>>>>", bytes)
 		panic(err)
 	}
 
@@ -104,9 +112,11 @@ func (v *Vertex) FromBytes(bytes []byte) {
 		panic(err)
 	}
 
-	v.W, err = c.NewG1FromBytes(rv.W)
-	if err != nil {
-		panic(err)
+	if len(rv.W) != 0 {
+		v.W, err = c.NewG1FromBytes(rv.W)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	v.Digests = make(map[uint16]*math.Zr)
@@ -163,8 +173,9 @@ func (v *Vertex) Digest() *math.Zr {
 	return common.FieldElementFromBytes(hash)
 }
 
-func NewVerkleTree(fanOut uint16, id2Path func(string) []uint16) *Tree {
+func NewVerkleTree(fanOut uint16, id2Path func(string) []uint16, db DB) *Tree {
 	t := &Tree{
+		DB: db,
 		PP: pp.NewPublicParams(int(fanOut + 2)),
 		Tree: &sparse.Tree{
 			FanOut:  int(fanOut),
@@ -195,7 +206,11 @@ func (t *Tree) Get(id string) (int64, []*Vertex, bool) {
 
 	verticesAlongThePath := make([]*Vertex, len(path))
 	for i := 0; i < len(verticesAlongThePath); i++ {
-		verticesAlongThePath[i] = path[i].(*sparse.Vertex).Data.(*Vertex)
+		key := path[i].(*sparse.Vertex).Data.(string)
+		bytes := t.DB.Get([]byte(key))
+		v := &Vertex{}
+		v.FromBytes(bytes)
+		verticesAlongThePath[i] = v
 	}
 
 	return n.(int64), verticesAlongThePath, true
@@ -205,15 +220,20 @@ func (t *Tree) Put(id string, data int64) {
 	t.Tree.Put(id, data)
 }
 
-func (t *Tree) updateInnerVertex(node interface{}, descendants []interface{}, descendantsLeaves bool, index int) interface{} {
+func (t *Tree) updateInnerVertex(key string, node interface{}, descendants []interface{}, descendantsLeaves bool, index int) interface{} {
 	if descendantsLeaves {
-		return t.updateLayerAboveLeaves(node, descendants, index)
+		return t.updateLayerAboveLeaves(key, node, descendants, index)
 	}
-	return t.updateInnerLayer(node, descendants, index)
+	return t.updateInnerLayer(key, node, descendants, index)
 }
 
-func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, index int) interface{} {
+func (t *Tree) updateInnerLayer(key string, node interface{}, descendants []interface{}, index int) interface{} {
 	var v *Vertex
+
+	defer func() {
+		t.DB.Put([]byte(key), v.Bytes())
+	}()
+
 	if node == nil {
 		v = &Vertex{
 			BlindingFactor: c.NewRandomZr(rand.Reader),
@@ -234,10 +254,13 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 				d = append(d, c.NewZrFromInt(0))
 				continue
 			}
-			val := desc.(*Vertex).sum
+
+			descVertex := t.fetchVertex(desc)
+
+			val := descVertex.sum
 			v.sum = v.sum.Plus(val)
 			v.values[uint16(i)] = val
-			digest := desc.(*Vertex).Digest()
+			digest := descVertex.Digest()
 			v.Digests[uint16(i)] = digest
 			m = append(m, val)
 			d = append(d, digest)
@@ -259,16 +282,20 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 		// Commit to Digests
 		v.W = pp.Commit(t.PP, d)
 
-		return v
+		return key
 	}
 
-	v = node.(*Vertex)
+	v = t.fetchVertex(key)
+
 	oldVal := v.values[uint16(index)]
 	if oldVal == nil {
 		oldVal = c.NewZrFromInt(0)
 	}
-	newVal := descendants[index].(*Vertex).sum
-	newDigest := descendants[index].(*Vertex).Digest()
+
+	descVertex := t.fetchVertex(descendants[index])
+
+	newVal := descVertex.sum
+	newDigest := descVertex.Digest()
 	v.Digests[uint16(index)] = newDigest
 
 	//oldSumDec, _ := v.sum.Int()
@@ -311,11 +338,29 @@ func (t *Tree) updateInnerLayer(node interface{}, descendants []interface{}, ind
 	v.W = pp.Commit(t.PP, d)
 	//pp.Update(t.PP, v.W, d, newDigest, index)
 
+	return key
+}
+
+func (t *Tree) fetchVertex(desc interface{}) *Vertex {
+	k := desc.(string)
+	bytes := t.DB.Get([]byte(k))
+	if len(bytes) == 0 {
+		panic(fmt.Sprintf("could not find %s in DB", k))
+	}
+	v := &Vertex{}
+	v.FromBytes(bytes)
 	return v
 }
 
-func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{}, index int) interface{} {
+func (t *Tree) updateLayerAboveLeaves(key string, node interface{}, descendants []interface{}, index int) interface{} {
 	var v *Vertex
+
+	defer func() {
+		defer func() {
+			t.DB.Put([]byte(key), v.Bytes())
+		}()
+	}()
+
 	if node == nil {
 		v = &Vertex{
 			BlindingFactor: c.NewRandomZr(rand.Reader),
@@ -347,10 +392,11 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 
 		v.V = pp.Commit(t.PP, m)
 
-		return v
+		return key
 	}
 
-	v = node.(*Vertex)
+	v = t.fetchVertex(key)
+
 	oldVal := v.values[uint16(index)]
 	if oldVal == nil {
 		oldVal = c.NewZrFromInt(0)
@@ -380,7 +426,7 @@ func (t *Tree) updateLayerAboveLeaves(node interface{}, descendants []interface{
 	// Update last entry with sum
 	pp.Update(t.PP, v.V, m, v.sum, len(v.values))
 
-	return v
+	return key
 }
 
 func updateSum(sum, removed, added *math.Zr) *math.Zr {

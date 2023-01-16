@@ -11,8 +11,18 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type MemDB map[string][]byte
+
+func (m MemDB) Get(key []byte) []byte {
+	return m[string(key)]
+}
+
+func (m MemDB) Put(key []byte, val []byte) {
+	m[string(key)] = val
+}
+
 func TestVerkleTree(t *testing.T) {
-	tree := NewVerkleTree(1023, sparse.HexId2PathForFanOut(1023))
+	tree := NewVerkleTree(1023, sparse.HexId2PathForFanOut(1023), make(MemDB))
 
 	tree.Put(hash("a"), 5)
 	tree.Put(hash("b"), 6)
@@ -68,7 +78,7 @@ func TestUpdateSum(t *testing.T) {
 }
 
 func TestSerializeVerkleTree(t *testing.T) {
-	tree := NewVerkleTree(1023, sparse.HexId2PathForFanOut(1023))
+	tree := NewVerkleTree(1023, sparse.HexId2PathForFanOut(1023), make(MemDB))
 
 	tree.Put(hash("a"), 5)
 	tree.Put(hash("b"), 6)

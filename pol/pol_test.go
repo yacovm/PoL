@@ -11,11 +11,21 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type MemDB map[string][]byte
+
+func (m MemDB) Get(key []byte) []byte {
+	return m[string(key)]
+}
+
+func (m MemDB) Put(key []byte, val []byte) {
+	m[string(key)] = val
+}
+
 func TestPolSparse(t *testing.T) {
 	fanout := uint16(7)
 	id2Path, pp := GeneratePublicParams(fanout, Sparse)
 
-	ls := NewLiabilitySet(pp, id2Path)
+	ls := NewLiabilitySet(pp, make(MemDB), id2Path)
 
 	idBuff := make([]byte, 32)
 	rand.Read(idBuff)
@@ -47,7 +57,7 @@ func TestPolDense(t *testing.T) {
 	fanout := uint16(7)
 	id2Path, pp := GeneratePublicParams(fanout, Dense)
 
-	ls := NewLiabilitySet(pp, id2Path)
+	ls := NewLiabilitySet(pp, make(MemDB), id2Path)
 
 	id := "987654321"
 

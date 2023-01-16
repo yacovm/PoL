@@ -14,7 +14,7 @@ import (
 
 type Tree struct {
 	ID2Path           func(string) []uint16
-	UpdateInnerVertex func(node interface{}, descendants []interface{}, descendantsLeaves bool, indexChanged int) interface{}
+	UpdateInnerVertex func(key string, node interface{}, descendants []interface{}, descendantsLeaves bool, indexChanged int) interface{}
 	FanOut            int
 	Root              *Vertex
 }
@@ -50,12 +50,16 @@ func (t *Tree) Put(id string, data interface{}) {
 
 	v := t.Root
 
+	var pathString string
+
 	for _, p := range path {
+		pathString = fmt.Sprintf("%s.%d", pathString, p)
 		if len(v.Descendants) == 0 {
 			v.Descendants = make(map[uint16]*Vertex, t.FanOut)
 		}
 		if v.Descendants[p] == nil {
 			v.Descendants[p] = &Vertex{
+				key:         pathString,
 				Parent:      v,
 				Descendants: make(map[uint16]*Vertex),
 			}
@@ -70,7 +74,7 @@ func (t *Tree) Put(id string, data interface{}) {
 	descendantsLeaves := true
 	i := len(path) - 1
 	for v != nil {
-		v.Data = t.UpdateInnerVertex(v.Data, v.rawData(t.FanOut), descendantsLeaves, int(path[i]))
+		v.Data = t.UpdateInnerVertex(v.key, v.Data, v.rawData(t.FanOut), descendantsLeaves, int(path[i]))
 		v = v.Parent
 		descendantsLeaves = false
 		i--
@@ -79,6 +83,7 @@ func (t *Tree) Put(id string, data interface{}) {
 
 // Vertex defines a vertex of a graph
 type Vertex struct {
+	key         string
 	Data        interface{}
 	Descendants map[uint16]*Vertex
 	Parent      *Vertex

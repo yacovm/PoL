@@ -2,7 +2,6 @@ package pol
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"pol/bp"
 	"pol/common"
@@ -31,6 +30,7 @@ type Parallelism bool
 var ParallelismEnabled = true
 
 type LiabilitySet struct {
+	DB   verkle.DB
 	tree *verkle.Tree
 	pp   *PublicParams
 }
@@ -49,11 +49,12 @@ func (pp *PublicParams) Size() int {
 
 // NewLiabilitySet creates a liability set with the given fanout and tree type.
 // Only a fan-out of the form 2^k - 1 for some natural k is permitted.
-func NewLiabilitySet(pp *PublicParams, id2Path func(string) []uint16) *LiabilitySet {
-	tree := verkle.NewVerkleTree(uint16(pp.Fanout), id2Path)
+func NewLiabilitySet(pp *PublicParams, db verkle.DB, id2Path func(string) []uint16) *LiabilitySet {
+	tree := verkle.NewVerkleTree(uint16(pp.Fanout), id2Path, db)
 	tree.PP = pp.PPPP
 
 	return &LiabilitySet{
+		DB:   &DBMemorizeRoot{DB: db},
 		pp:   pp,
 		tree: tree,
 	}
@@ -248,7 +249,10 @@ func (ls *LiabilitySet) Root() (V, W *math.G1) {
 	if ls.tree == nil || ls.tree.Tree == nil || ls.tree.Tree.Root == nil {
 		return nil, nil
 	}
-	v := ls.tree.Tree.Root.Data.(*verkle.Vertex)
+	key := ls.tree.Tree.Root.Data.(string)
+	bytes := ls.DB.Get([]byte(key))
+	v := &verkle.Vertex{}
+	v.FromBytes(bytes)
 	return v.V, v.W
 }
 
@@ -389,8 +393,28 @@ func uint16VecToIntVec(in []uint16) []int {
 	return res
 }
 
-func hash(s string) string {
-	h := sha256.New()
-	h.Write([]byte(s))
-	return hex.EncodeToString(h.Sum(nil))
+type DBMemorizeRoot struct {
+	DB   verkle.DB
+	root []byte
+}
+
+func (db *DBMemorizeRoot) Get(key []byte) []byte {
+	if len(key) == 0 && len(db.root) != 0 {
+		return db.root
+	}
+
+	val := db.DB.Get(key)
+
+	if len(key) == 0 {
+		db.root = val
+	}
+
+	return val
+}
+
+func (db *DBMemorizeRoot) Put(key []byte, val []byte) {
+	if len(key) == 0 {
+		db.root = val
+	}
+	db.DB.Put(key, val)
 }
