@@ -1,6 +1,7 @@
 #!/bin/bash
 
 servers="ec2-54-144-121-61.compute-1.amazonaws.com ec2-54-86-56-104.compute-1.amazonaws.com"
+#servers="ec2-54-158-67-205.compute-1.amazonaws.com"
 
 for server in $servers; do
 	go build

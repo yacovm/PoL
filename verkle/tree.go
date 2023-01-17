@@ -326,9 +326,7 @@ func (t *Tree) updateInnerLayer(key string, node interface{}, descendants []inte
 
 	//pp.Update(t.PP, v.V, m, newVal, index)
 
-	shouldBeV := pp.Commit(t.PP, m)
-
-	v.V = shouldBeV
+	v.V = pp.Commit(t.PP, m)
 
 	// Update last entry with sum
 	//pp.Update(t.PP, v.V, m, v.sum, len(v.values))

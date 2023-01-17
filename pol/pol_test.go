@@ -48,7 +48,7 @@ func TestPolSparse(t *testing.T) {
 	assert.Equal(t, int64(101), hundred)
 	assert.True(t, ok)
 	t1 = time.Now()
-	err := proof.Verify(pp, id, vRoot, wRoot, id2Path)
+	_, err := proof.Verify(pp, id, vRoot, wRoot, id2Path)
 	fmt.Println("Verification time:", time.Since(t1))
 	assert.NoError(t, err)
 }
@@ -72,7 +72,36 @@ func TestPolDense(t *testing.T) {
 	assert.Equal(t, int64(100), hundred)
 	assert.True(t, ok)
 	t1 = time.Now()
-	err := proof.Verify(pp, id, vRoot, wRoot, sparse.DigitPath(fanout))
+	_, err := proof.Verify(pp, id, vRoot, wRoot, sparse.DigitPath(fanout))
 	fmt.Println("Verification time:", time.Since(t1))
+	assert.NoError(t, err)
+}
+
+func TestProveTot(t *testing.T) {
+	fanout := uint16(7)
+	id2Path, pp := GeneratePublicParams(fanout, Sparse)
+
+	ls := NewLiabilitySet(pp, make(MemDB), id2Path)
+
+	idBuff := make([]byte, 32)
+	rand.Read(idBuff)
+
+	id := hex.EncodeToString(idBuff)
+
+	ls.Set(id, 50)
+
+	rand.Read(idBuff)
+	id = hex.EncodeToString(idBuff)
+	ls.Set(id, 50)
+
+	t1 := time.Now()
+	totProof := ls.ProveTot()
+	fmt.Println(time.Since(t1))
+	t1 = time.Now()
+
+	V, _ := ls.Root()
+
+	err := totProof.Verify(pp, V)
+	fmt.Println(time.Since(t1))
 	assert.NoError(t, err)
 }

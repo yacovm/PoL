@@ -109,6 +109,7 @@ type LiabilityProof struct {
 	Digests          common.Vec
 	RangeProofs      []*bp.RangeProof
 	EqualityProof    *poe.AggregatedProof
+	LiabilityProof   TotalProof
 }
 
 func (lp LiabilityProof) Size() int {
@@ -120,19 +121,19 @@ func (lp LiabilityProof) Size() int {
 	return size
 }
 
-func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *math.G1, id2path func(string) []uint16) error {
+func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *math.G1, id2path func(string) []uint16) ([]time.Duration, error) {
 	path := id2path(id)
 	expectedDigestNum := len(path)
 	if len(lp.W) != expectedDigestNum-1 || len(lp.Digests) != expectedDigestNum {
-		return fmt.Errorf("expected digest proofs of size %d but got %d", expectedDigestNum, len(lp.W))
+		return nil, fmt.Errorf("expected digest proofs of size %d but got %d", expectedDigestNum, len(lp.W))
 	}
 
 	// Check that the root is what is advertised.
 	if !lp.V[0].Equals(V) {
-		return fmt.Errorf("root V does not match public known V value")
+		return nil, fmt.Errorf("root V does not match public known V value")
 	}
 	if !lp.W[0].Equals(W) {
-		return fmt.Errorf("root W does not match public known W value")
+		return nil, fmt.Errorf("root W does not match public known W value")
 	}
 
 	var rangeProofsVerification sync.WaitGroup
@@ -177,7 +178,7 @@ func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *mat
 
 			err := lp.checkCommitmentToLeafVertex(i)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			continue
@@ -186,18 +187,20 @@ func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *mat
 		if i > 0 {
 			err := lp.checkCommitmentToInnerVertex(i)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
 
 	if err := pp.VerifyAggregation(publicParams.PPPP, uint16VecToIntVec(path)[:len(path)-1], lp.W, lp.PointProofπ, lp.PointProofΣ, pp.RO); err != nil {
-		return fmt.Errorf("hash chain aggregation proof invalid: %v", err)
+		return nil, fmt.Errorf("hash chain aggregation proof invalid: %v", err)
 	}
 
+	saStart := time.Now()
 	if err := lp.SumArgumentProof.VerifyAggregated(publicParams.SAPP, lp.V); err != nil {
-		return fmt.Errorf("failed verifying sum argument: %v", err)
+		return nil, fmt.Errorf("failed verifying sum argument: %v", err)
 	}
+	saElapsed := time.Since(saStart)
 
 	zeroVec := make(common.Vec, publicParams.Fanout+2)
 	zeroVec.Zero()
@@ -211,16 +214,22 @@ func (lp LiabilityProof) Verify(publicParams *PublicParams, id string, V, W *mat
 		equalities.W = append(equalities.W, zeroCommit)
 	}
 
+	eqStart := time.Now()
 	if err := equalities.Verify(lp.EqualityProof); err != nil {
-		return fmt.Errorf("failed verifying equality proof")
+		return nil, fmt.Errorf("failed verifying equality proof")
 	}
+	eqElapsed := time.Since(eqStart)
 
 	rangeProofsVerification.Wait()
 	if detectedRangeProofErr.Load() != nil {
-		return detectedRangeProofErr.Load().(error)
+		return nil, detectedRangeProofErr.Load().(error)
 	}
 
-	return nil
+	if err := pp.Verify(publicParams.PPPP, common.IntToZr(lp.LiabilityProof.Sum), lp.LiabilityProof.LiabilityProof, lp.V[len(lp.V)-1], int(path[len(path)-1])); err != nil {
+		return nil, fmt.Errorf("client liability proof is invalid: %v", err)
+	}
+
+	return []time.Duration{saElapsed, eqElapsed}, nil
 }
 
 func (lp LiabilityProof) checkCommitmentToInnerVertex(i int) error {
@@ -257,6 +266,55 @@ func (ls *LiabilitySet) Root() (V, W *math.G1) {
 	return v.V, v.W
 }
 
+type TotalProof struct {
+	LiabilityProof *math.G1
+	Sum            int
+}
+
+func (tp TotalProof) Verify(publicParams *PublicParams, V *math.G1) error {
+	mi := common.IntToZr(tp.Sum)
+	return pp.Verify(publicParams.PPPP, mi, tp.LiabilityProof, V, publicParams.Fanout)
+}
+
+func (ls *LiabilitySet) ProveTot() TotalProof {
+	cachedRoot := ls.tree.DB.Get(nil)
+
+	v := &verkle.Vertex{}
+	v.FromBytes(cachedRoot)
+
+	sum, π := ls.openSumFromVertex(v)
+
+	sumAsInt, err := sum.Int()
+	if err != nil {
+		panic(err)
+	}
+
+	return TotalProof{
+		Sum:            int(sumAsInt),
+		LiabilityProof: π,
+	}
+}
+
+func (ls *LiabilitySet) openSumFromVertex(v *verkle.Vertex) (*math.Zr, *math.G1) {
+	values := v.Values(ls.pp.PPPP.N - 1)
+	m := make(common.Vec, len(values)+1)
+	copy(m, values)
+	m[len(m)-1] = v.BlindingFactor
+
+	sum, π := pp.Open(ls.pp.PPPP, len(m)-2, m)
+	return sum, π
+}
+
+func (ls *LiabilitySet) openForClient(v *verkle.Vertex, index int) (*math.Zr, *math.G1) {
+	values := v.Values(ls.pp.PPPP.N - 1)
+	m := make(common.Vec, len(values)+1)
+	copy(m, values)
+	m[len(m)-1] = v.BlindingFactor
+
+	sum, π := pp.Open(ls.pp.PPPP, index, m)
+	return sum, π
+}
+
 func (ls *LiabilitySet) Set(id string, liability int64) {
 	if liability < 0 {
 		panic("Liability cannot be negative")
@@ -270,16 +328,16 @@ func (ls *LiabilitySet) Get(id string) (int64, bool) {
 	return liability, ok
 }
 
-func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, time.Duration, bool) {
+func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, []time.Duration, bool) {
 	path := ls.tree.Tree.ID2Path(id)
-	liability, verticesAlongThePath, ok := ls.tree.Get(id)
+	_, verticesAlongThePath, ok := ls.tree.Get(id)
 
 	var vertices verkle.Vertices
 	var proof LiabilityProof
 	var digestProofs common.G1v
 
 	if !ok {
-		return 0, proof, 0, false
+		return 0, proof, nil, false
 	}
 
 	start := time.Now()
@@ -356,14 +414,28 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, time.D
 		vertices = append(vertices, v)
 	}
 
+	lastVertex := vertices[len(path)-1]
+	l, liabilityProof := ls.openForClient(lastVertex, int(path[len(path)-1]))
+	liability, err := l.Int()
+	if err != nil {
+		panic(err)
+	}
+
+	proof.LiabilityProof = TotalProof{
+		LiabilityProof: liabilityProof,
+		Sum:            int(liability),
+	}
+
 	var tPP common.Vec
 	for i := 0; i < len(path)-1; i++ {
 		tPP = append(tPP, pp.RO(ls.tree.PP, proof.W, i))
 	}
 
+	saStart := time.Now()
 	proof.PointProofΣ = proof.Digests[:len(tPP)].InnerProd(tPP)
 	proof.PointProofπ = pp.Aggregate(ls.tree.PP, proof.W, digestProofs, pp.RO)
 	proof.SumArgumentProof = vertices.SumArgument(ls.pp.SAPP)
+	saElapsed := time.Since(saStart)
 
 	zeroVec := make(common.Vec, ls.tree.Tree.FanOut+2)
 	zeroVec.Zero()
@@ -381,11 +453,14 @@ func (ls *LiabilitySet) ProveLiability(id string) (int64, LiabilityProof, time.D
 		equalities.V = append(equalities.V, zeroCommit)
 		equalities.W = append(equalities.W, zeroCommit)
 	}
+
+	eqProofStart := time.Now()
 	proof.EqualityProof = equalities.Prove(vEQ, wEQ)
+	eqProofElapsed := time.Since(eqProofStart)
 
 	rangeProofProduction.Wait()
 
-	return liability, proof, time.Since(start), true
+	return liability, proof, []time.Duration{saElapsed, eqProofElapsed, time.Since(start)}, true
 }
 
 func uint16VecToIntVec(in []uint16) []int {
