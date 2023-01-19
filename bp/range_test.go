@@ -1,7 +1,6 @@
 package bp
 
 import (
-	"fmt"
 	"pol/common"
 	"testing"
 
@@ -21,9 +20,4 @@ func TestRangeProof(t *testing.T) {
 	rp := ProveRange(pp, V, v, r)
 	err := VerifyRange(pp, rp, V)
 	assert.NoError(t, err)
-}
-
-func TestBits(t *testing.T) {
-	fmt.Println(bitDecomposition(3, 7))
-	fmt.Println(common.Bits(common.IntToZr(3), 8))
 }

@@ -79,9 +79,12 @@ func (rp *RangeProof) Size() int {
 }
 
 func VerifyRange(pp *RangeProofPublicParams, rp *RangeProof, V *math.G1) error {
+	// We assume all liabilities and their sums to be less than 2^{63}
+	m := 63
+
 	n := len(pp.Gs)
 
-	x := rangeProofRO1(pp, V, rp.W)
+	x := rangeProofRO1(pp, V, rp.W, rp.Q)
 
 	U := pp.F.Mul(rp.γ)
 	U.Add(V)
@@ -105,17 +108,18 @@ func VerifyRange(pp *RangeProofPublicParams, rp *RangeProof, V *math.G1) error {
 		f[i] = xs.PowBitVec(iBits).Product()
 	}
 
-	m := 63
 	d := computeD(n, m, f, x)
 
 	y0Digest := []byte{0}
 	y1Digest := []byte{1}
 	y0Digest = append(y0Digest, pp.Digest()...)
 	y1Digest = append(y1Digest, pp.Digest()...)
+	y0Digest = append(y0Digest, x.Bytes()...)
+	y1Digest = append(y1Digest, x.Bytes()...)
 
 	y0, y1 := common.FieldElementFromBytes(randomOracle(rp.Q, rp.R, y0Digest)), common.FieldElementFromBytes(randomOracle(rp.Q, rp.R, y1Digest))
 	y0v, y1v := common.PowerSeries(n*m, y0), expand(common.IntToZr(1), n*m).Mul(y1)
-	z := computeZ(pp, rp.C1, rp.C2, rp.Q, rp.R)
+	z := computeZ(pp, rp.C1, rp.C2, rp.Q, rp.R, y0.Bytes(), y1.Bytes())
 
 	y0Inverse := invertZr(y0)
 	Fprime := pp.Fs.MulV(common.PowerSeries(len(pp.Fs), y0Inverse))
@@ -158,12 +162,26 @@ func VerifyRange(pp *RangeProofPublicParams, rp *RangeProof, V *math.G1) error {
 func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr) *RangeProof {
 	n := len(pp.Gs)
 
+	// We assume all liabilities and their sums to be less than 2^{63}
+	m := 63
+
 	w, rPrime := common.RandVec(n), common.RandVec(1)[0]
 
 	W := pp.F.Mul(rPrime)
 	W.Add(pp.Gs.MulV(w).Sum())
 
-	x := rangeProofRO1(pp, V, W)
+	vBits := common.IntsToZr(v.Bits(m))
+	vBits = append(vBits, w...)
+
+	wCaret := expand(common.IntToZr(1), n*m).Sub(vBits[:n*m])
+
+	ν, η := common.RandVec(1)[0], common.RandVec(1)[0]
+
+	Q := pp.F.Mul(ν)
+	Q.Add(pp.Hs.MulV(vBits).Sum())
+	Q.Add(pp.Fs[:n*m].MulV(wCaret).Sum())
+
+	x := rangeProofRO1(pp, V, W, Q)
 
 	γ := common.NegZr(r.Plus(x.Mul(rPrime)))
 
@@ -187,19 +205,7 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 		f[i] = xs.PowBitVec(iBits).Product()
 	}
 
-	m := 63
 	d := computeD(n, m, f, x)
-
-	vBits := common.IntsToZr(v.Bits(m))
-	vBits = append(vBits, w...)
-
-	wCaret := expand(common.IntToZr(1), n*m).Sub(vBits[:n*m])
-
-	ν, η := common.RandVec(1)[0], common.RandVec(1)[0]
-
-	Q := pp.F.Mul(ν)
-	Q.Add(pp.Hs.MulV(vBits).Sum())
-	Q.Add(pp.Fs[:n*m].MulV(wCaret).Sum())
 
 	s, t := common.RandVec(n*m+n), common.RandVec(n*m)
 
@@ -211,6 +217,8 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 	y1Digest := []byte{1}
 	y0Digest = append(y0Digest, pp.Digest()...)
 	y1Digest = append(y1Digest, pp.Digest()...)
+	y0Digest = append(y0Digest, x.Bytes()...)
+	y1Digest = append(y1Digest, x.Bytes()...)
 
 	y0, y1 := common.FieldElementFromBytes(randomOracle(Q, R, y0Digest)), common.FieldElementFromBytes(randomOracle(Q, R, y1Digest))
 	y0v, y1v := common.PowerSeries(n*m, y0), expand(common.IntToZr(1), n*m).Mul(y1)
@@ -226,7 +234,7 @@ func ProveRange(pp *RangeProofPublicParams, V *math.G1, v common.Vec, r *math.Zr
 	C1.Add(pp.H.Mul(τ1))
 	C2.Add(pp.H.Mul(τ2))
 
-	z := computeZ(pp, C1, C2, Q, R)
+	z := computeZ(pp, C1, C2, Q, R, y0.Bytes(), y1.Bytes())
 
 	ρ := common.NegZr(ν.Plus(η.Mul(z)))
 	τ := τ1.Mul(z).Plus(τ2.Mul(z.Mul(z)))
@@ -280,11 +288,13 @@ func computeP(pp *RangeProofPublicParams, ρ *math.Zr, Q *math.G1, R *math.G1, z
 	return P
 }
 
-func computeZ(pp *RangeProofPublicParams, C1 *math.G1, C2 *math.G1, Q *math.G1, R *math.G1) *math.Zr {
+func computeZ(pp *RangeProofPublicParams, C1 *math.G1, C2 *math.G1, Q *math.G1, R *math.G1, y0, y1 []byte) *math.Zr {
 	var C1C2Digest []byte
 	C1C2Digest = append(C1C2Digest, pp.Digest()...)
 	C1C2Digest = append(C1C2Digest, C1.Bytes()...)
 	C1C2Digest = append(C1C2Digest, C2.Bytes()...)
+	C1C2Digest = append(C1C2Digest, y0...)
+	C1C2Digest = append(C1C2Digest, y1...)
 	z := common.FieldElementFromBytes(randomOracle(Q, R, C1C2Digest))
 	return z
 }
@@ -322,11 +332,12 @@ func bitDecomposition(n, max uint16) []uint8 {
 	return result
 }
 
-func rangeProofRO1(pp *RangeProofPublicParams, V *math.G1, W *math.G1) *math.Zr {
+func rangeProofRO1(pp *RangeProofPublicParams, V, W, Q *math.G1) *math.Zr {
 	h := sha256.New()
 	h.Write(pp.Digest())
 	h.Write(V.Bytes())
 	h.Write(W.Bytes())
+	h.Write(Q.Bytes())
 	digest := h.Sum(nil)
 	return common.FieldElementFromBytes(digest)
 }
