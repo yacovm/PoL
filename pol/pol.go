@@ -3,6 +3,7 @@ package pol
 import (
 	"crypto/sha256"
 	"fmt"
+	"math/big"
 	"pol/bp"
 	"pol/common"
 	"pol/poe"
@@ -61,16 +62,19 @@ func NewLiabilitySet(pp *PublicParams, db verkle.DB, id2Path func(string) []uint
 	}
 }
 
-func GeneratePublicParams(fanOut uint16, treeType TreeType) (func(string) []uint16, *PublicParams) {
+func GeneratePublicParams(fanOut uint16, treeType TreeType, space *big.Int) (func(string) []uint16, *PublicParams) {
 	var id2Path func(string) []uint16
 	var m int
 
 	if treeType == Dense {
-		m = sparse.DigitPathLen(fanOut) - 1
-		id2Path = sparse.DigitPath(fanOut)
+		m = sparse.DigitPathLen(fanOut, *space) - 1
+		id2Path = sparse.DigitPath(fanOut, *space)
 	}
 
 	if treeType == Sparse {
+		if space != nil {
+			panic("sparse tree type should not have a space size")
+		}
 		m = sparse.ExpectedHexPathLengthByFanOut[fanOut] - 1
 		id2Path = sparse.HexId2PathForFanOut(fanOut)
 	}

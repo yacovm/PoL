@@ -6,6 +6,7 @@ require (
 	github.com/IBM/mathlib v0.0.0-20220414125002-6f78dce8f91c
 	github.com/consensys/gnark-crypto v0.6.0
 	github.com/stretchr/testify v1.8.0
+	github.com/syndtr/goleveldb v1.0.0
 )
 
 require (
@@ -15,7 +16,6 @@ require (
 	github.com/mmcloughlin/addchain v0.4.0 // indirect
 	github.com/pkg/errors v0.8.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/syndtr/goleveldb v1.0.0 // indirect
 	golang.org/x/crypto v0.0.0-20210322153248-0c34fe9e7dc2 // indirect
 	golang.org/x/sys v0.0.0-20220727055044-e65921a090b8 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

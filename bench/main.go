@@ -5,23 +5,24 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	math "github.com/IBM/mathlib"
-	"github.com/syndtr/goleveldb/leveldb"
 	"math/big"
 	"os"
 	"pol/pol"
 	"strconv"
 	"time"
+
+	math "github.com/IBM/mathlib"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 const (
-	//totalPopulation = 10 * 1000
-	totalPopulation = 1000
+// totalPopulation = 10 * 1000
 )
 
 var (
 	fanouts = []uint16{3, 7, 15, 31, 63, 127, 255, 511}
 	//fanouts = []uint16{7, 15}
+	totalPopulation = 1000
 )
 
 type sizes []int
@@ -118,6 +119,14 @@ func (m measurementByFanOut) proofSizes() string {
 	return bb.String()
 }
 
+func (m measurementByFanOut) proofSizesWithBatchedRangeProofs() string {
+	bb := bytes.Buffer{}
+	for _, fanOut := range fanouts {
+		bb.WriteString(fmt.Sprintf("(%d, %d)", fanOut, m[fanOut].proofSize.Avg()))
+	}
+	return bb.String()
+}
+
 type measurement struct {
 	ppGenTime          durations
 	proofTime          durations
@@ -128,6 +137,7 @@ type measurement struct {
 	sumTimeVerify      durations
 	ppSize             sizes
 	proofSize          sizes
+	proofSizeBatchedRP sizes
 	constTime          time.Duration
 }
 
@@ -146,9 +156,25 @@ func main() {
 		sparse:     make(measurementByFanOut),
 	}
 
+	pop := os.Getenv("POPULATION")
+	if pop != "" {
+		n, err := strconv.ParseInt(pop, 10, 32)
+		if err != nil {
+			os.Stderr.WriteString(fmt.Sprintf("Failed parsing POPULATION (%s) environment variable: %v", pop, err))
+			os.Exit(2)
+		}
+		totalPopulation = int(n)
+	}
+
 	fmt.Println("Population:", totalPopulation)
 
-	measurePPGen(m)
+	//measurePPGen(m)
+
+	for _, fanOut := range fanouts {
+		m.dense[fanOut] = &measurement{}
+	}
+
+	var spaceSize *big.Int
 
 	treeType := setTreeType()
 
@@ -160,38 +186,44 @@ func main() {
 			return hex.EncodeToString(buff)
 		}
 	} else {
-		fmt.Println("Benchmarking dense liablity set...")
+		spaceSize = big.NewInt(0).Exp(big.NewInt(10), big.NewInt(9), nil)
+		spaceTxt := os.Getenv("SPACE")
+		if spaceTxt != "" {
+			space, err := strconv.ParseInt(spaceTxt, 10, 64)
+			if err != nil {
+				os.Stderr.WriteString(fmt.Sprintf("Failed parsing SPACE (%s) environment variable: %v", spaceTxt, err))
+				os.Exit(2)
+			}
+			spaceSize = big.NewInt(space)
+		}
+
+		fmt.Println("Benchmarking dense liability set with space size of", spaceSize.Text(10))
+
 		idGen = func(buff []byte) string {
 			n := big.NewInt(0).SetBytes(buff)
-			n.Mod(n, big.NewInt(1000*1000*1000))
-			if n.Cmp(big.NewInt(100*1000*1000)) < 0 {
-				n.Add(n, big.NewInt(1000*1000*100))
+			n.Mod(n, spaceSize)
+			if n.Cmp(spaceSize) < 0 {
+				n.Add(n, spaceSize)
 			}
 			return n.String()
 		}
 	}
 
 	if treeType == pol.Sparse {
-		measureConstructProofVerify(m.iterations, m.sparse, totalPopulation, treeType, idGen)
-		fmt.Println("PP sizes:", m.sparse.ppSizes())
-		fmt.Println("Proof sizes:", m.sparse.proofSizes())
-
-		fmt.Println("PP gen times:", m.sparse.ppGenTime())
+		measureConstructProofVerify(m.iterations, m.sparse, totalPopulation, treeType, idGen, nil)
 		fmt.Println("proof times:", m.sparse.proveTime())
 		fmt.Println("verify times:", m.sparse.verifyTime())
+		fmt.Println("Proof sizes:", m.dense.proofSizes())
 
 		fmt.Println("equality proof times:", m.sparse.proveEqualityTime())
 		fmt.Println("sum proof times:", m.sparse.proveSumTime())
 		fmt.Println("verify equality times:", m.sparse.verifyEqTime())
 		fmt.Println("verify sum times:", m.sparse.verifySumTime())
 	} else {
-		measureConstructProofVerify(m.iterations, m.dense, totalPopulation, treeType, idGen)
-		fmt.Println("PP sizes:", m.dense.ppSizes())
-		fmt.Println("Proof sizes:", m.dense.proofSizes())
-
-		fmt.Println("PP gen times:", m.dense.ppGenTime())
+		measureConstructProofVerify(m.iterations, m.dense, totalPopulation, treeType, idGen, spaceSize)
 		fmt.Println("proof times:", m.dense.proveTime())
 		fmt.Println("verify times:", m.dense.verifyTime())
+		fmt.Println("Proof sizes:", m.dense.proofSizes())
 
 		fmt.Println("equality proof times:", m.dense.proveEqualityTime())
 		fmt.Println("sum proof times:", m.dense.proveSumTime())
@@ -239,35 +271,17 @@ func setParallelism() {
 
 type idFromRandBytes func([]byte) string
 
-func measureConstructProofVerify(iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType, genID idFromRandBytes) {
+func measureConstructProofVerify(iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType, genID idFromRandBytes, spaceSize *big.Int) {
 	for _, fanOut := range fanouts {
-		retryUntilSuccess(iterations, measurementsByFanout, population, treeType, genID, fanOut)
+		benchmarkFanout(iterations, measurementsByFanout, population, treeType, genID, fanOut, spaceSize)
 	}
 }
 
-func retryUntilSuccess(iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType, genID idFromRandBytes, fanOut uint16) {
-	for {
-		err := benchmarkFanout(iterations, measurementsByFanout, population, treeType, genID, fanOut)
-		if err == nil {
-			return
-		}
-	}
-}
-
-func benchmarkFanout(iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType, genID idFromRandBytes, fanOut uint16) (somethingWentWrong error) {
+func benchmarkFanout(iterations int, measurementsByFanout map[uint16]*measurement, population int, treeType pol.TreeType, genID idFromRandBytes, fanOut uint16, spaceSize *big.Int) {
 	fmt.Println("Benchmarking fanout", fanOut, "...")
-	id2Path, pp := pol.GeneratePublicParams(fanOut, treeType)
-
-	/*	db := NewDB()
-		defer db.Destroy()*/
+	id2Path, pp := pol.GeneratePublicParams(fanOut, treeType, spaceSize)
 
 	db := make(MemDB)
-
-	defer func() {
-		/*		if e := recover(); e != nil {
-				somethingWentWrong = fmt.Errorf("something went wrong")
-			}*/
-	}()
 
 	ls := pol.NewLiabilitySet(pp, db, id2Path)
 
@@ -275,15 +289,46 @@ func benchmarkFanout(iterations int, measurementsByFanout map[uint16]*measuremen
 	measurementsByFanout[fanOut].constTime = constructionTime
 
 	idBuffs := make([]string, iterations)
-	for iteration := 0; iteration < iterations; iteration++ {
-		buff := make([]byte, 32)
-		_, err := rand.Read(buff)
-		if err != nil {
-			panic(err)
+
+	for {
+
+		success := true
+
+		for iteration := 0; iteration < iterations; iteration++ {
+			buff := make([]byte, 32)
+			_, err := rand.Read(buff)
+			if err != nil {
+				panic(err)
+			}
+			id := genID(buff)
+			idBuffs[iteration] = id
+			ls.Set(id, 666)
 		}
-		id := genID(buff)
-		idBuffs[iteration] = id
-		ls.Set(id, 666)
+
+		V, W := ls.Root()
+
+		// Dry run: Prove and verify on iterations without measuring time
+
+		for iteration := 0; iteration < iterations; iteration++ {
+			_, π, _, ok := ls.ProveLiability(idBuffs[iteration])
+			if !ok {
+				panic("liability not found!!")
+			}
+
+			_, err := π.Verify(pp, idBuffs[iteration], V, W, id2Path)
+			if err != nil {
+				fmt.Println(fmt.Sprintf("Failed verifying: %v", err))
+				success = false
+			}
+		}
+
+		if success {
+			break
+		} else {
+			idBuffs = make([]string, iterations)
+			ls = pol.NewLiabilitySet(pp, db, id2Path)
+		}
+
 	}
 
 	V, W := ls.Root()
@@ -294,15 +339,17 @@ func benchmarkFanout(iterations int, measurementsByFanout map[uint16]*measuremen
 		if !ok {
 			panic("liability not found!!")
 		}
-		measurementsByFanout[fanOut].proofTime = append(measurementsByFanout[fanOut].proofTime, elapsedTimes[2])
-		measurementsByFanout[fanOut].equalityTimeProve = append(measurementsByFanout[fanOut].equalityTimeProve, elapsedTimes[1])
-		measurementsByFanout[fanOut].sumTimeProve = append(measurementsByFanout[fanOut].sumTimeProve, elapsedTimes[0])
 
 		start := time.Now()
 		verifyTimes, err := π.Verify(pp, idBuffs[iteration], V, W, id2Path)
 		if err != nil {
 			panic(err)
 		}
+
+		measurementsByFanout[fanOut].proofTime = append(measurementsByFanout[fanOut].proofTime, elapsedTimes[2])
+		measurementsByFanout[fanOut].equalityTimeProve = append(measurementsByFanout[fanOut].equalityTimeProve, elapsedTimes[1])
+		measurementsByFanout[fanOut].sumTimeProve = append(measurementsByFanout[fanOut].sumTimeProve, elapsedTimes[0])
+
 		saElapsed, eqElapsed := verifyTimes[0], verifyTimes[1]
 		elapsed := time.Since(start)
 		measurementsByFanout[fanOut].verifyTime = append(measurementsByFanout[fanOut].verifyTime, elapsed)
@@ -312,8 +359,6 @@ func benchmarkFanout(iterations int, measurementsByFanout map[uint16]*measuremen
 	}
 
 	benchmarkVerifyTot(iterations, ls, pp, V)
-
-	return nil
 }
 
 func benchmarkVerifyTot(iterations int, ls *pol.LiabilitySet, pp *pol.PublicParams, V *math.G1) {
@@ -343,21 +388,14 @@ func populateLiabilitySet(population int, ls *pol.LiabilitySet, genID idFromRand
 
 	fmt.Println("Populating liability set...")
 
-	for i := 0; i < population/1000; i++ {
-		idBuffs := make([]string, 1000)
-		for j := 0; j < 1000; j++ {
-			buff := make([]byte, 32)
-			_, err := rand.Read(buff)
-			if err != nil {
-				panic(err)
-			}
-			idBuffs[j] = genID(buff)
+	for i := 0; i < population; i++ {
+		buff := make([]byte, 32)
+		_, err := rand.Read(buff)
+		if err != nil {
+			panic(err)
 		}
-
 		start := time.Now()
-		for j := 0; j < 1000; j++ {
-			ls.Set(idBuffs[j], int64(j))
-		}
+		ls.Set(genID(buff), int64(i))
 		elapsed := time.Since(start)
 		constructionTime += elapsed
 	}
@@ -367,14 +405,14 @@ func populateLiabilitySet(population int, ls *pol.LiabilitySet, genID idFromRand
 	return constructionTime
 }
 
-func measurePPGen(m *measurements) {
+func measurePPGen(m *measurements, spaceSize *big.Int) {
 	fmt.Println("Measuring dense public parameter generation time")
 	// First measure dense tree public parameter generation
 	for _, fanOut := range fanouts {
 		m.dense[fanOut] = &measurement{}
 		for iteration := 0; iteration < m.iterations; iteration++ {
 			start := time.Now()
-			_, pp := pol.GeneratePublicParams(fanOut, pol.Dense)
+			_, pp := pol.GeneratePublicParams(fanOut, pol.Dense, spaceSize)
 			elapsed := time.Since(start)
 			m.dense[fanOut].ppGenTime = append(m.dense[fanOut].ppGenTime, elapsed)
 			m.dense[fanOut].ppSize = append(m.dense[fanOut].ppSize, pp.Size()/1024)
@@ -387,7 +425,7 @@ func measurePPGen(m *measurements) {
 		m.sparse[fanOut] = &measurement{}
 		for iteration := 0; iteration < m.iterations; iteration++ {
 			start := time.Now()
-			_, pp := pol.GeneratePublicParams(fanOut, pol.Sparse)
+			_, pp := pol.GeneratePublicParams(fanOut, pol.Sparse, spaceSize)
 			elapsed := time.Since(start)
 			m.sparse[fanOut].ppGenTime = append(m.sparse[fanOut].ppGenTime, elapsed)
 			m.sparse[fanOut].ppSize = append(m.sparse[fanOut].ppSize, pp.Size()/1024)
