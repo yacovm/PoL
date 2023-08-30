@@ -1,7 +1,7 @@
 Short Privacy-Preserving Proofs of Liabilities
 ===============================================================================
 
-This project contains an implementation of the paper.
+This project contains an implementation of the [paper](https://github.com/yacovm/PoL/blob/main/paper.pdf).
 
 The folder/package structure is as follows:
 
